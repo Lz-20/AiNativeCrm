@@ -186,9 +186,11 @@ describe("scripts/sonda-pdf-na-imagem.mjs", () => {
     const job = linhas.slice(inicio, fim === -1 ? undefined : fim).join("\n");
 
     // A imagem precisa existir antes de a sonda rodar.
-    expect(job.indexOf("pi-native-smoke:pr")).toBeLessThan(job.indexOf("sonda-pdf-na-imagem.mjs"));
+    expect(job.indexOf("pi-native-crm-smoke:pr")).toBeLessThan(
+      job.indexOf("sonda-pdf-na-imagem.mjs"),
+    );
     // ...e a sonda roda DENTRO dela: mesma tag, executando o script montado.
-    expect(job).toMatch(/pi-native-smoke:pr node \/sonda-pdf-na-imagem\.mjs/);
+    expect(job).toMatch(/pi-native-crm-smoke:pr node \/sonda-pdf-na-imagem\.mjs/);
     // O PDF de amostra é o MESMO do teste de extração do repositório, montado do runner.
     expect(job).toContain("tests/fixtures/sample-text.pdf:/fixture.pdf");
     expect(job).toContain("scripts/sonda-pdf-na-imagem.mjs:/sonda-pdf-na-imagem.mjs");
