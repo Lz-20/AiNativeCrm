@@ -163,7 +163,12 @@ clonar() { # $1 = destino (traz o gate SOB PROVA, a versão da árvore de trabal
     || { echo "clonar: 'git clone $principal $1' falhou 3x — provável I/O transiente do runner, não do gate" >&2; exit 90; }
   mkdir -p "$1/scripts"; cp "$GATE_ORIGEM" "$1/scripts/checar-colisao-de-migration.sh"
 }
-gate() { ( cd "$1" && bash scripts/checar-colisao-de-migration.sh "${2:-origin/main}" 2>&1 ); }
+# `GITHUB_REF` carrega o número do PR DESTE job (`refs/pull/N/merge`) e o gate exclui
+# esse PR da população — correto em produção, fatal aqui: o fixture usa o PR #7, então
+# um job rodando NO PR #7 mediria zero e reprovaria sem nada estar quebrado. Sem a
+# variável, o teste fica no mesmo estado de um push na main e não depende do número
+# que o GitHub deu ao PR de quem roda.
+gate() { ( unset GITHUB_REF; cd "$1" && bash scripts/checar-colisao-de-migration.sh "${2:-origin/main}" 2>&1 ); }
 migrar() { printf 'select 9;\n' > "$1/supabase/migrations/$2"; }
 commit() { git -C "$1" add -A >/dev/null && git -C "$1" commit -q -m "$2"; }
 
@@ -351,7 +356,9 @@ pr_no_principal() { # $1 = número do PR, $2 = nome da migration que a cabeça d
   [ "$push_ok" = 1 ] || { echo "pr_no_principal: push para refs/pull/$1/head falhou 3x" >&2; exit 90; }
 }
 gate_prs() { # $1 = PRs abertos que o gh falso lista, $2 = clone
-  ( export FAKE_GH_PRS="$1"; cd "$2" && bash scripts/checar-colisao-de-migration.sh origin/main 2>&1 )
+  # `unset GITHUB_REF` pela mesma razão do `gate()`: o gate descarta o PR do próprio
+  # job, e o fixture usa o #7.
+  ( unset GITHUB_REF; export FAKE_GH_PRS="$1"; cd "$2" && bash scripts/checar-colisao-de-migration.sh origin/main 2>&1 )
 }
 pr_no_principal 7 "20260917100000_0276_do_fork.sql"
 pr_no_principal 9 "20260917120000_0400_abandonado.sql"
