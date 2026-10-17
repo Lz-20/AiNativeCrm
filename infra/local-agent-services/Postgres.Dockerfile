@@ -1,0 +1,3 @@
+# Dedicated persistent development database. No CRM data/config is reused.
+FROM public.ecr.aws/supabase/postgres:15.8.1.085
+CMD ["bash", "-ceu", "install -d -m 700 -o postgres -g postgres /data/pg; exec gosu postgres bash -ceu 'if [ ! -f /data/pg/PG_VERSION ]; then initdb -D /data/pg -U postgres --auth-local=trust --auth-host=scram-sha-256 --pwfile=<(printf \"%s\\n\" \"${POSTGRES_PASSWORD:?}\") >/dev/null; printf \"%s\\n\" \"host all all 0.0.0.0/0 scram-sha-256\" \"host all all ::/0 scram-sha-256\" >> /data/pg/pg_hba.conf; fi; exec postgres -D /data/pg -c listen_addresses=\"*\" -c port=5432 -c shared_buffers=64MB -c max_connections=40'"]

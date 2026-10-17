@@ -1,0 +1,344 @@
+{
+  "schemaVersion": 1,
+  "provenance": "recorded_real_model_synthetic_crm",
+  "date": "2026-10-03",
+  "runId": "bda3c380-2184-496c-94a6-8a9e40919ec8",
+  "task": "[2026-10-03 memory regression] 全面验收：请对选中的合成演示商机做一次商机复盘与风险评估，由客户事实分析员、商机诊断员、业务政策顾问独立核对证据，再综合事实、冲突、知识缺口及下一步建议。优先查询‘产品’。必须注明这是合成演示资料；客户偏好不是公司政策。只读，不发送、创建或修改任何 CRM 数据。获取证据后提交结构化最终结果，不要反复读取。",
+  "status": "partial",
+  "mode": "inspect",
+  "startedAt": "2026-10-03T09:55:16.369Z",
+  "completedAt": "2026-10-03T09:58:02.785Z",
+  "independentConfirmedMemoryCount": 1,
+  "modelCalls": [
+    {
+      "purpose": "agent_turn",
+      "provider": "opencode",
+      "model": "space-bunny-free",
+      "status": "ok",
+      "input_tokens": 18547,
+      "output_tokens": 7313,
+      "cache_read_tokens": 21976,
+      "latency_ms": 121881,
+      "cost_cents": "0"
+    },
+    {
+      "purpose": "workbench_eval_judge",
+      "provider": "opencode",
+      "model": "space-bunny-free",
+      "status": "ok",
+      "input_tokens": 7646,
+      "output_tokens": 3182,
+      "cache_read_tokens": 128,
+      "latency_ms": 39289,
+      "cost_cents": "0"
+    }
+  ],
+  "tools": [
+    {
+      "name": "crm_get_contact",
+      "input": {
+        "contact_id": "[演示对象 ID]"
+      },
+      "observation": {
+        "status": "success",
+        "confirmedCustomerMemory": {
+          "status": "mem0",
+          "coverage": "complete",
+          "providerStatus": "connected",
+          "confirmedCount": 1,
+          "facts": [
+            {
+              "body": "[演示合成事实] 林晓梅偏好下午三点沟通；先发送书面说明再预约。不代表真实客户。",
+              "authority": "customer_context_only"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "crm_get_lead",
+      "input": {
+        "lead_id": "[演示对象 ID]"
+      },
+      "observation": {
+        "status": "success"
+      }
+    },
+    {
+      "name": "crm_search_knowledge",
+      "input": {},
+      "observation": {
+        "status": "success",
+        "evidenceCount": 7
+      }
+    },
+    {
+      "name": "crm_get_org_memory",
+      "input": {},
+      "observation": {
+        "status": "success",
+        "evidenceCount": 0
+      }
+    },
+    {
+      "name": "crm_get_conversation_history",
+      "input": {
+        "limit": 20,
+        "conversation_id": "[演示对象 ID]"
+      },
+      "observation": {
+        "status": "success",
+        "messageCount": 0,
+        "confirmedCustomerMemory": {
+          "status": "mem0",
+          "coverage": "complete",
+          "providerStatus": "connected",
+          "confirmedCount": 1,
+          "facts": [
+            {
+              "body": "[演示合成事实] 林晓梅偏好下午三点沟通；先发送书面说明再预约。不代表真实客户。",
+              "authority": "customer_context_only"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "events": [
+    {
+      "sequence": 1,
+      "type": "run_started",
+      "at": "2026-10-03T09:54:49.605Z"
+    },
+    {
+      "sequence": 2,
+      "type": "context_loaded",
+      "at": "2026-10-03T09:55:16.522Z"
+    },
+    {
+      "sequence": 3,
+      "type": "context_loaded",
+      "at": "2026-10-03T09:55:16.624Z"
+    },
+    {
+      "sequence": 4,
+      "type": "collaboration_started",
+      "at": "2026-10-03T09:55:16.657Z"
+    },
+    {
+      "sequence": 5,
+      "type": "specialist_started",
+      "at": "2026-10-03T09:55:16.783Z"
+    },
+    {
+      "sequence": 6,
+      "type": "specialist_started",
+      "at": "2026-10-03T09:55:16.815Z"
+    },
+    {
+      "sequence": 7,
+      "type": "specialist_started",
+      "at": "2026-10-03T09:55:16.840Z"
+    },
+    {
+      "sequence": 8,
+      "type": "specialist_completed",
+      "at": "2026-10-03T09:55:41.188Z",
+      "status": "complete"
+    },
+    {
+      "sequence": 9,
+      "type": "specialist_completed",
+      "at": "2026-10-03T09:55:48.597Z",
+      "status": "complete"
+    },
+    {
+      "sequence": 10,
+      "type": "specialist_completed",
+      "at": "2026-10-03T09:56:00.768Z",
+      "status": "partial"
+    },
+    {
+      "sequence": 11,
+      "type": "collaboration_completed",
+      "at": "2026-10-03T09:56:00.789Z",
+      "status": "partial"
+    },
+    {
+      "sequence": 12,
+      "type": "tool_started",
+      "at": "2026-10-03T09:56:28.904Z",
+      "tool": "crm_get_contact"
+    },
+    {
+      "sequence": 13,
+      "type": "tool_started",
+      "at": "2026-10-03T09:56:28.931Z",
+      "tool": "crm_get_lead"
+    },
+    {
+      "sequence": 14,
+      "type": "tool_started",
+      "at": "2026-10-03T09:56:28.954Z",
+      "tool": "crm_search_knowledge"
+    },
+    {
+      "sequence": 15,
+      "type": "tool_started",
+      "at": "2026-10-03T09:56:28.989Z",
+      "tool": "crm_get_org_memory"
+    },
+    {
+      "sequence": 16,
+      "type": "tool_started",
+      "at": "2026-10-03T09:56:29.020Z",
+      "tool": "crm_get_conversation_history"
+    },
+    {
+      "sequence": 17,
+      "type": "tool_completed",
+      "at": "2026-10-03T09:56:29.145Z",
+      "tool": "crm_get_org_memory",
+      "status": "success"
+    },
+    {
+      "sequence": 18,
+      "type": "tool_completed",
+      "at": "2026-10-03T09:56:29.409Z",
+      "tool": "crm_get_lead",
+      "status": "success"
+    },
+    {
+      "sequence": 19,
+      "type": "tool_completed",
+      "at": "2026-10-03T09:56:31.445Z",
+      "tool": "crm_get_contact",
+      "status": "success"
+    },
+    {
+      "sequence": 20,
+      "type": "tool_completed",
+      "at": "2026-10-03T09:56:31.497Z",
+      "tool": "crm_get_conversation_history",
+      "status": "success"
+    },
+    {
+      "sequence": 21,
+      "type": "tool_completed",
+      "at": "2026-10-03T09:56:31.680Z",
+      "tool": "crm_search_knowledge",
+      "status": "success"
+    },
+    {
+      "sequence": 22,
+      "type": "model_decision",
+      "at": "2026-10-03T09:56:31.737Z"
+    },
+    {
+      "sequence": 23,
+      "type": "model_decision",
+      "at": "2026-10-03T09:57:43.135Z"
+    },
+    {
+      "sequence": 24,
+      "type": "model_decision",
+      "at": "2026-10-03T09:58:02.608Z"
+    },
+    {
+      "sequence": 25,
+      "type": "model_decision",
+      "at": "2026-10-03T09:58:02.859Z"
+    },
+    {
+      "sequence": 26,
+      "type": "run_partial",
+      "at": "2026-10-03T09:58:02.920Z",
+      "status": "partial"
+    },
+    {
+      "sequence": 27,
+      "type": "usage_reported",
+      "at": "2026-10-03T09:58:02.982Z"
+    }
+  ],
+  "finalAnswer": "【合成演示资料，非真实客户】contact.source=demo、lead.source=demo、邮箱 @example.test；已确认的「偏好下午三点沟通、先书面说明再预约」为客户上下文(authority=customer_context_only)，不是公司政策。\n\n一、本次只读核实的事实\n1) 商机 84598184：status=open，阶段「新客户」(stage_id 7eeda7ba…)，value_cents=1280000/CNY(≈¥12,800)，expected_close_date=null、assigned_at=null、owner_kind=null、custom_fields 与 source_metadata 为空，tags=[待跟进]；stage_changed_at=created_at(09-25)，创建后从未推进阶段；last_activity_at 09-27T04:57Z 早于 updated_at 09-27T12:50Z（矛盾）。\n2) 联系人 6842302c：is_blocked=false、is_anonymized=false、cpf_available=false、tags 为空；consent 的 marketing/profiling/transactional 三项 source 与 granted_at 均为 null → 无授权凭据。\n3) 客户记忆 coverage=complete、confirmed=true（revision 8bad85f9…），仅 1 条上述偏好。\n4) 会话 761207e2：messages=[]、checkpoint=null、revision=null、demanda_id=null → 无承诺/异议记录，也无可追溯该记忆来源的消息。\n5) 知识库（本轮优先查询「产品」）：organization_wiki 返回 7 条命中，均为 CRM 平台自述页（Pi Native CRM / Pi Agent Core / Mem0 / Langfuse / 客户记忆），authority=derived_company_knowledge_not_commercial_approval，自述「仅用于本地联调，不代表真实客户、产品价格或商业承诺」；其中写明「读取 CRM 数据可自动执行，发送外部客户消息与其他不可逆动作必须人工确认」。组织记忆 crm_get_org_memory 为空（retrieval=empty）——仅代表本次查询为空，不等于数据丢失，也不同于客户记忆。\n\n二、冲突（显式保留，未消解）\nA. 政策顾问报告知识检索为空（wiki_status=empty、melhor_similaridade=null），本轮同一只读查询返回 7 条命中；需人工确认是参数/命名空间差异还是两次运行间数据变化。在此之前不能断言「知识库为空」。\nB. 命中内容为演示合成资料，不覆盖本商机（企业官网改版）的产品目录、报价或阶段门禁 → 产品/授权政策缺口仍在。\n\n三、优先级与影响范围（仅建议，未执行）\nP0｜人工接管会话 761207e2（客户最后要求真人、拒绝机器人回复）并置 assignee_kind=user：影响该联系人唯一通道；负责人显示「演示账号」但归属类型未标记。\nP1｜核实 09-27T12:50Z 更新内容，澄清 last_activity_at 与 updated_at 矛盾，确认停滞基线（6 或 7 天）；补登 expected_close_date 与 assigned_at：影响该 pipeline 停滞与 SLA 口径。\nP2｜补 consent 与产品/需求字段后重做机会评分，并复核「客户偏好 ≠ 公司政策」的适用规则：影响所有外发动作的合规前提。\n\n本次仅执行读取，未发送、创建或修改任何 CRM 数据。",
+  "evaluations": [
+    {
+      "at": "2026-10-03T09:59:22.494Z",
+      "fingerprint": "df2e511a268f3db822038bf37bbf007bdcdebc3bf72d7ee4feacee7e03b8f40a",
+      "profileKey": "crm_supervisor_v1",
+      "profileRevision": 8,
+      "verdict": "needs_review",
+      "score": 79,
+      "dimensions": [
+        {
+          "key": "task_completion",
+          "verdict": "needs_review",
+          "score": 50,
+          "findings": [
+            "partial_result"
+          ]
+        },
+        {
+          "key": "answer_quality",
+          "verdict": "needs_review",
+          "score": 50,
+          "findings": [
+            "memory_claims_require_semantic_review",
+            "structured_claims_not_independently_verified",
+            "structured_result_missing_material"
+          ]
+        },
+        {
+          "key": "tool_reliability",
+          "verdict": "pass",
+          "score": 100,
+          "findings": []
+        },
+        {
+          "key": "policy_compliance",
+          "verdict": "pass",
+          "score": 100,
+          "findings": []
+        },
+        {
+          "key": "efficiency",
+          "verdict": "pass",
+          "score": 100,
+          "findings": []
+        },
+        {
+          "key": "knowledge_grounding",
+          "verdict": "pass",
+          "score": 100,
+          "findings": []
+        },
+        {
+          "key": "collaboration_quality",
+          "verdict": "needs_review",
+          "score": 50,
+          "findings": [
+            "specialist_partial_results",
+            "specialist_claims_missing"
+          ]
+        }
+      ],
+      "semanticJudge": {
+        "status": "completed",
+        "verdict": "needs_review",
+        "score": 80,
+        "rubricRevision": 2,
+        "judgeId": "workbench_semantic_v2:opencode:space-bunny-free"
+      }
+    }
+  ],
+  "boundaries": {
+    "syntheticCustomer": true,
+    "credentialsIncluded": false,
+    "hiddenReasoningIncluded": false,
+    "rawToolBodiesIncluded": false,
+    "mem0": "not_measured_by_export",
+    "weknora": "not_measured_by_export",
+    "langfuse": "not_measured_by_export"
+  }
+}

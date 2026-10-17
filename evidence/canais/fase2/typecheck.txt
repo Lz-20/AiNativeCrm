@@ -1,0 +1,4 @@
+
+> pi-native-crm@0.1.0 typecheck ~/pi-native-crm-canais
+> tsc --noEmit
+

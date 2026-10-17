@@ -1,0 +1,119 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-03",
+  "baselineCommit": "616c3f7b3a3fa665e45ba381cc6eb9742f0dd89d",
+  "branch": "feat/chat-first-workbench-2026-10-01",
+  "overallVerdict": "not_accepted",
+  "provenance": "real_model_synthetic_crm_and_automated_acceptance",
+  "boundaries": {
+    "syntheticCustomersOnly": true,
+    "customerOutboundActions": 0,
+    "credentialsIncluded": false,
+    "hiddenReasoningIncluded": false,
+    "rawContinuationIncluded": false,
+    "rawToolBodiesIncluded": false
+  },
+  "services": {
+    "mem0": { "verified": true, "memoryCount": 1, "remoteSearchMatched": true, "unauthorizedHttpStatus": 401 },
+    "weknoraWiki": { "verified": true, "status": "complete", "evidenceCount": 4 },
+    "langfuse": { "verified": true, "newRunsReadBack": 2, "inputOutputExported": false }
+  },
+  "runs": [
+    {
+      "id": "681406d2-261e-41bf-8ba1-43fcc56d995d",
+      "scenario": "opportunity_review_with_three_specialists",
+      "agent": "crm_supervisor",
+      "mode": "inspect",
+      "provider": "opencode",
+      "model": "space-bunny-free",
+      "status": "partial",
+      "errorCode": "empty_final_answer",
+      "finalAnswerPresent": false,
+      "structuredResultPresent": false,
+      "specialists": [
+        { "key": "opportunity_diagnosis", "status": "completed" },
+        { "key": "customer_evidence", "status": "completed" },
+        { "key": "policy_advisor", "status": "partial", "claims": 114 }
+      ],
+      "productEvents": 28,
+      "businessToolCalls": 14,
+      "businessToolErrors": 0,
+      "knowledgeSearches": 3,
+      "groundedEvidenceItems": 13,
+      "structuredClaims": 182,
+      "actionProposals": 0,
+      "rootCompletedTools": ["crm_get_org_memory", "crm_get_lead", "crm_get_contact", "crm_search_knowledge", "crm_list_automation_runs", "crm_list_conversations"],
+      "usage": { "inputTokens": 35752, "outputTokens": 5404, "aggregatedCalls": 4, "recordedCostCents": 0 },
+      "deterministicEval": { "score": 84, "verdict": "needs_review", "profileRevision": 8 },
+      "semanticEval": { "score": 5, "verdict": "fail", "status": "completed", "rubricRevision": 2 },
+      "langfuse": {
+        "traceId": "7ab10fd2d97ff6ff5f9720f44985a36e",
+        "observations": 34,
+        "modelObservations": 10,
+        "toolObservations": 15,
+        "scores": 8,
+        "overall": 5,
+        "semantic": 5,
+        "privateContentAbsent": true
+      }
+    },
+    {
+      "id": "b5524809-fd7a-4c56-bdad-f7c0a7e3de5d",
+      "scenario": "confirmed_customer_memory_consumption",
+      "agent": "crm_intelligence",
+      "mode": "inspect",
+      "provider": "opencode",
+      "model": "space-bunny-free",
+      "status": "partial",
+      "errorCode": "missing_material",
+      "finalAnswerPresent": true,
+      "structuredResultPresent": true,
+      "businessToolCalls": 2,
+      "businessToolErrors": 0,
+      "actionProposals": 0,
+      "tools": ["crm_get_contact", "crm_get_org_memory"],
+      "finding": "verified_memory_discounted",
+      "usage": { "inputTokens": 7715, "outputTokens": 2682, "cacheReadTokens": 3962, "aggregatedLatencyMs": 37797 },
+      "deterministicEval": { "score": 76, "verdict": "needs_review" },
+      "semanticEval": { "score": 74, "verdict": "needs_review", "status": "completed", "rubricRevision": 2 },
+      "langfuse": {
+        "traceId": "df1f30186700f7043d5c5e6010769948",
+        "observations": 10,
+        "modelObservations": 3,
+        "toolObservations": 4,
+        "scores": 7,
+        "overall": 74,
+        "semantic": 74,
+        "privateContentAbsent": true
+      }
+    }
+  ],
+  "liveChecks": {
+    "builtinPatch": 409,
+    "builtinDelete": 409,
+    "builtinPublish": 409,
+    "foreignAgentRead": 404,
+    "foreignAgentRun": 404,
+    "foreignLeadScope": 422,
+    "queuedCancel": 200,
+    "repeatedCancel": 409,
+    "sseFullSequences": [1, 28],
+    "sseAfter20Sequences": [21, 28],
+    "sseNegativeAfter": 400
+  },
+  "automatedGates": {
+    "typecheck": "pass",
+    "lint": { "errors": 0, "warnings": 475 },
+    "channelLint": "pass",
+    "roleRankLint": "pass",
+    "shell": "pass",
+    "productionBuild": "pass",
+    "unit": { "passedFiles": 1315, "failedFiles": 5, "passed": 12888, "failed": 5, "expectedFail": 1, "skipped": 1, "durationSeconds": 810.64 },
+    "database": { "passedFiles": 259, "failedFiles": 5, "passed": 2173, "failed": 37, "expectedFail": 1, "skipped": 1, "durationSeconds": 658.11, "oom": false },
+    "databaseUpdateWithData": "pass",
+    "confirmedMemoryPrivacyAcceptance": { "passed": 4, "failed": 0, "durationSeconds": 1.14, "remoteDeletionExercised": false },
+    "playwrightOriginal": { "scheduled": 28, "reportedFailuresBeforeInterruption": 9, "exitCode": 130, "complete": false },
+    "playwrightDirectAuth": { "passed": 1, "failed": 2, "didNotRun": 2 },
+    "playwrightLocaleIndependent": { "passed": 3, "failed": 0, "durationSeconds": 12.3 }
+  }
+}

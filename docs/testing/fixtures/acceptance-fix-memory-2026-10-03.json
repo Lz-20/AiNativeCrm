@@ -1,0 +1,193 @@
+{
+  "schemaVersion": 1,
+  "provenance": "recorded_real_model_synthetic_crm",
+  "date": "2026-10-03",
+  "runId": "977a7a88-41c1-4219-ba1f-9ea4e20e0b1f",
+  "task": "[2026-10-03 memory regression] 合成演示全面验收：读取选中的联系人以及已确认客户记忆，简短列出客户姓名与沟通偏好，并说明这不是公司政策。只读，不查询知识、不发送、不修改 CRM。获取证据后提交结构化最终结果。",
+  "status": "completed",
+  "mode": "inspect",
+  "startedAt": "2026-10-03T09:54:50.137Z",
+  "completedAt": "2026-10-03T09:55:26.215Z",
+  "independentConfirmedMemoryCount": 1,
+  "modelCalls": [
+    {
+      "purpose": "agent_turn",
+      "provider": "opencode",
+      "model": "space-bunny-free",
+      "status": "ok",
+      "input_tokens": 4425,
+      "output_tokens": 1340,
+      "cache_read_tokens": 4225,
+      "latency_ms": 35581,
+      "cost_cents": "0"
+    },
+    {
+      "purpose": "workbench_eval_judge",
+      "provider": "opencode",
+      "model": "space-bunny-free",
+      "status": "ok",
+      "input_tokens": 2688,
+      "output_tokens": 1174,
+      "cache_read_tokens": 128,
+      "latency_ms": 16610,
+      "cost_cents": "0"
+    }
+  ],
+  "tools": [
+    {
+      "name": "crm_get_contact",
+      "input": {
+        "contact_id": "[演示对象 ID]"
+      },
+      "observation": {
+        "status": "success",
+        "confirmedCustomerMemory": {
+          "status": "mem0",
+          "coverage": "complete",
+          "providerStatus": "connected",
+          "confirmedCount": 1,
+          "facts": [
+            {
+              "body": "[演示合成事实] 林晓梅偏好下午三点沟通；先发送书面说明再预约。不代表真实客户。",
+              "authority": "customer_context_only"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "events": [
+    {
+      "sequence": 1,
+      "type": "run_started",
+      "at": "2026-10-03T09:54:19.521Z"
+    },
+    {
+      "sequence": 2,
+      "type": "context_loaded",
+      "at": "2026-10-03T09:54:50.335Z"
+    },
+    {
+      "sequence": 3,
+      "type": "context_loaded",
+      "at": "2026-10-03T09:54:50.470Z"
+    },
+    {
+      "sequence": 4,
+      "type": "tool_started",
+      "at": "2026-10-03T09:54:55.366Z",
+      "tool": "crm_get_contact"
+    },
+    {
+      "sequence": 5,
+      "type": "tool_completed",
+      "at": "2026-10-03T09:54:56.528Z",
+      "tool": "crm_get_contact",
+      "status": "success"
+    },
+    {
+      "sequence": 6,
+      "type": "model_decision",
+      "at": "2026-10-03T09:54:56.564Z"
+    },
+    {
+      "sequence": 7,
+      "type": "model_decision",
+      "at": "2026-10-03T09:55:26.011Z"
+    },
+    {
+      "sequence": 8,
+      "type": "model_decision",
+      "at": "2026-10-03T09:55:26.193Z"
+    },
+    {
+      "sequence": 9,
+      "type": "run_completed",
+      "at": "2026-10-03T09:55:26.258Z",
+      "status": "completed"
+    },
+    {
+      "sequence": 10,
+      "type": "usage_reported",
+      "at": "2026-10-03T09:55:26.316Z"
+    }
+  ],
+  "finalAnswer": "只读验收已完成（未查询知识库、未发送消息、未修改任何 CRM 状态）。\n\n【数据库事实 — 来自 crm_get_contact】\n- 联系人：林晓梅（contact_id [演示对象 ID]，source=demo，is_blocked=false，is_anonymized=false，cpf_available=false）。\n- 已确认客户记忆：1 条，coverage=complete，source=crm_confirmed_facts，confirmed=true，authority=customer_context_only，revision 8bad85f9…93ebf（记忆 id [演示对象 ID]，category=preference）。\n- 记忆内容（该条记忆正文自带标注“[演示合成事实]…不代表真实客户”，source=demo 亦印证此为演示数据）：\n\n客户姓名：林晓梅\n沟通偏好（CRM 已确认）：\n1) 偏好下午三点沟通；\n2) 先发送书面说明，再预约。\n\n【范围说明 — 这不是公司政策】\n该记忆的 authority 字段为 customer_context_only，仅代表该客户/组织的上下文偏好，不能当作公司政策、审批规则或话术规范使用；本次按要求未调用公司政策/知识库工具。公司层面的政策、约束与统一口径需另行单独读取后才能引用。\n\n【未执行 / 未知】\n- 本次没有执行任何写入、外联或状态变更；上述内容仅来自读取结果。\n- 观察到的 consent 各字段（marketing/profiling/transactional）均为 null（source/version/granted_at 皆空），这是事实读数，不代表缺失或故障；它只是未来任何外联动作的前置条件，不构成本次只读任务的缺口。",
+  "evaluations": [
+    {
+      "at": "2026-10-03T09:56:29.103Z",
+      "fingerprint": "d8460eef2e3746b085590c8e5ef359bc384bb7d0585b9bc447bdf1907fd403d5",
+      "profileKey": "crm_intelligence_v1",
+      "profileRevision": 8,
+      "verdict": "needs_review",
+      "score": 89,
+      "dimensions": [
+        {
+          "key": "task_completion",
+          "verdict": "pass",
+          "score": 100,
+          "findings": []
+        },
+        {
+          "key": "answer_quality",
+          "verdict": "needs_review",
+          "score": 50,
+          "findings": [
+            "memory_claims_require_semantic_review",
+            "structured_claims_not_independently_verified"
+          ]
+        },
+        {
+          "key": "knowledge_grounding",
+          "verdict": "not_run",
+          "score": null,
+          "findings": [
+            "knowledge_not_needed_or_not_used"
+          ]
+        },
+        {
+          "key": "tool_reliability",
+          "verdict": "pass",
+          "score": 100,
+          "findings": []
+        },
+        {
+          "key": "policy_compliance",
+          "verdict": "pass",
+          "score": 100,
+          "findings": []
+        },
+        {
+          "key": "efficiency",
+          "verdict": "pass",
+          "score": 100,
+          "findings": []
+        },
+        {
+          "key": "collaboration_quality",
+          "verdict": "not_run",
+          "score": null,
+          "findings": [
+            "collaboration_not_applicable"
+          ]
+        }
+      ],
+      "semanticJudge": {
+        "status": "completed",
+        "verdict": "pass",
+        "score": 92,
+        "rubricRevision": 2,
+        "judgeId": "workbench_semantic_v2:opencode:space-bunny-free"
+      }
+    }
+  ],
+  "boundaries": {
+    "syntheticCustomer": true,
+    "credentialsIncluded": false,
+    "hiddenReasoningIncluded": false,
+    "rawToolBodiesIncluded": false,
+    "mem0": "not_measured_by_export",
+    "weknora": "not_measured_by_export",
+    "langfuse": "not_measured_by_export"
+  }
+}

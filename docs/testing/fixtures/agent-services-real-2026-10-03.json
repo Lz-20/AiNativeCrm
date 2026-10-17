@@ -1,0 +1,926 @@
+[
+  {
+    "schemaVersion": 1,
+    "provenance": "recorded_real_model_synthetic_crm",
+    "date": "2026-10-03",
+    "runId": "614417da-04ad-49c6-9d0c-d3a3572bb631",
+    "task": "[2026-10-03 integrations live check] 请调用 crm_search_contacts 搜索演示客户林晓梅，调用 crm_get_contact 读取资料，列出她的人类确认客户记忆。只读，不修改 CRM，不发送消息，明确区别 CRM 事实与推断。",
+    "status": "partial",
+    "mode": "inspect",
+    "startedAt": "2026-10-03T03:26:14.408Z",
+    "completedAt": "2026-10-03T03:26:52.227Z",
+    "independentConfirmedMemoryCount": 1,
+    "modelCalls": [
+      {
+        "purpose": "agent_turn",
+        "provider": "opencode",
+        "model": "space-bunny-free",
+        "status": "ok",
+        "input_tokens": 16694,
+        "output_tokens": 2987,
+        "cache_read_tokens": 23774,
+        "latency_ms": 24237,
+        "cost_cents": "0"
+      },
+      {
+        "purpose": "agent_turn",
+        "provider": "opencode",
+        "model": "space-bunny-free",
+        "status": "ok",
+        "input_tokens": 3948,
+        "output_tokens": 1328,
+        "cache_read_tokens": 128,
+        "latency_ms": 13364,
+        "cost_cents": "0"
+      },
+      {
+        "purpose": "workbench_eval_judge",
+        "provider": "opencode",
+        "model": "space-bunny-free",
+        "status": "ok",
+        "input_tokens": 3355,
+        "output_tokens": 2026,
+        "cache_read_tokens": 128,
+        "latency_ms": 24773,
+        "cost_cents": "0"
+      },
+      {
+        "purpose": "workbench_eval_judge",
+        "provider": "opencode",
+        "model": "space-bunny-free",
+        "status": "ok",
+        "input_tokens": 3472,
+        "output_tokens": 1082,
+        "cache_read_tokens": 128,
+        "latency_ms": 14600,
+        "cost_cents": "0"
+      }
+    ],
+    "tools": [
+      {
+        "name": "crm_search_contacts",
+        "input": {
+          "limit": 10,
+          "query": "林晓梅"
+        },
+        "observation": {
+          "status": "success",
+          "contactsCount": 1
+        }
+      },
+      {
+        "name": "crm_get_org_memory",
+        "input": {},
+        "observation": {
+          "status": "success",
+          "evidenceCount": 0
+        }
+      },
+      {
+        "name": "crm_get_contact",
+        "input": {
+          "contact_id": "[演示对象 ID]"
+        },
+        "observation": {
+          "status": "success",
+          "confirmedCustomerMemory": {
+            "coverage": "not_returned",
+            "confirmedCount": 0
+          }
+        }
+      },
+      {
+        "name": "crm_list_conversations",
+        "input": {
+          "limit": 20,
+          "contact_id": "[演示对象 ID]"
+        },
+        "observation": {
+          "status": "success",
+          "conversationsCount": 1
+        }
+      },
+      {
+        "name": "crm_get_conversation_history",
+        "input": {
+          "limit": 20,
+          "conversation_id": "[演示对象 ID]"
+        },
+        "observation": {
+          "status": "success",
+          "messageCount": 0,
+          "confirmedCustomerMemory": {
+            "coverage": "not_returned",
+            "confirmedCount": 0
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "sequence": 1,
+        "type": "run_started",
+        "at": "2026-10-03T03:24:45.051Z"
+      },
+      {
+        "sequence": 2,
+        "type": "context_loaded",
+        "at": "2026-10-03T03:26:14.488Z"
+      },
+      {
+        "sequence": 3,
+        "type": "context_loaded",
+        "at": "2026-10-03T03:26:14.525Z"
+      },
+      {
+        "sequence": 4,
+        "type": "tool_started",
+        "at": "2026-10-03T03:26:18.377Z",
+        "tool": "crm_search_contacts"
+      },
+      {
+        "sequence": 5,
+        "type": "tool_started",
+        "at": "2026-10-03T03:26:18.407Z",
+        "tool": "crm_get_org_memory"
+      },
+      {
+        "sequence": 6,
+        "type": "tool_completed",
+        "at": "2026-10-03T03:26:18.435Z",
+        "tool": "crm_get_org_memory",
+        "status": "success"
+      },
+      {
+        "sequence": 7,
+        "type": "tool_completed",
+        "at": "2026-10-03T03:26:18.444Z",
+        "tool": "crm_search_contacts",
+        "status": "success"
+      },
+      {
+        "sequence": 8,
+        "type": "model_decision",
+        "at": "2026-10-03T03:26:18.458Z"
+      },
+      {
+        "sequence": 9,
+        "type": "tool_started",
+        "at": "2026-10-03T03:26:20.259Z",
+        "tool": "crm_get_contact"
+      },
+      {
+        "sequence": 10,
+        "type": "tool_completed",
+        "at": "2026-10-03T03:26:20.285Z",
+        "tool": "crm_get_contact",
+        "status": "success"
+      },
+      {
+        "sequence": 11,
+        "type": "model_decision",
+        "at": "2026-10-03T03:26:20.295Z"
+      },
+      {
+        "sequence": 12,
+        "type": "tool_started",
+        "at": "2026-10-03T03:26:29.918Z",
+        "tool": "crm_list_conversations"
+      },
+      {
+        "sequence": 13,
+        "type": "tool_completed",
+        "at": "2026-10-03T03:26:29.966Z",
+        "tool": "crm_list_conversations",
+        "status": "success"
+      },
+      {
+        "sequence": 14,
+        "type": "model_decision",
+        "at": "2026-10-03T03:26:29.981Z"
+      },
+      {
+        "sequence": 15,
+        "type": "tool_started",
+        "at": "2026-10-03T03:26:38.753Z",
+        "tool": "crm_get_conversation_history"
+      },
+      {
+        "sequence": 16,
+        "type": "tool_completed",
+        "at": "2026-10-03T03:26:38.827Z",
+        "tool": "crm_get_conversation_history",
+        "status": "success"
+      },
+      {
+        "sequence": 17,
+        "type": "model_decision",
+        "at": "2026-10-03T03:26:38.837Z"
+      },
+      {
+        "sequence": 18,
+        "type": "model_decision",
+        "at": "2026-10-03T03:26:52.235Z"
+      },
+      {
+        "sequence": 19,
+        "type": "run_partial",
+        "at": "2026-10-03T03:26:52.261Z",
+        "status": "partial"
+      },
+      {
+        "sequence": 20,
+        "type": "usage_reported",
+        "at": "2026-10-03T03:26:52.277Z"
+      }
+    ],
+    "finalAnswer": "只读核查结果（2026-10-03）：CRM 搜索“林晓梅”命中且仅命中 1 条联系人记录（id [演示对象 ID]），资料与历史均已读取。\n\n结论（数据库事实）：该联系人目前**没有任何人类确认的客户记忆**。三处证据一致——\n1. 联系人资料接口未返回任何 memory 字段，tags 为空数组；\n2. consent 三类（marketing/profiling/transactional）的 source、version、granted_at 全部为 null，即无任何经同意确认并落库的偏好记录；\n3. 该联系人唯一会话的 customer_memory 返回 status=empty，checkpoint=null、revision=null，messages=[]。\n此外，组织记忆返回 status=empty、document=null、无 active learnings，即组织侧同样没有已发布文档或有效规则来定义“人类确认记忆”。\n\n推断（非 CRM 事实）：资料中 source=demo，倾向于说明该记录为演示数据而非真实客户档案；据此我不会把任何特征当作真实业务事实陈述。\n\n需要注意的待确认点：会话 [演示对象 ID] 为 whatsapp、status=open、unread_count=1，其最后消息预览表明客户要求转接真人客服并不希望机器人继续回复——这是一条客户诉求信号，不等于已被人工确认的记忆。该会话 queue_position=null、assignee_kind=null，assigned_to_user_name 显示为“演示账号”，因此**无法确认**是否已有真人坐席实际承接。\n\n本轮未执行任何写操作、未发送任何消息、未转接会话，也未将任何内容写入记忆或修改 CRM 状态。",
+    "evaluations": [
+      {
+        "at": "2026-10-03T03:27:49.078Z",
+        "fingerprint": "b8142f55839ce6ee730da1dfdbb6a06eda18c7283d0bca6a52ffa9f7c4e766ea",
+        "profileKey": "crm_intelligence_v1",
+        "profileRevision": 7,
+        "verdict": "needs_review",
+        "score": 76,
+        "dimensions": [
+          {
+            "key": "task_completion",
+            "verdict": "needs_review",
+            "score": 50,
+            "findings": [
+              "partial_result"
+            ]
+          },
+          {
+            "key": "answer_quality",
+            "verdict": "needs_review",
+            "score": 50,
+            "findings": [
+              "structured_claims_not_independently_verified",
+              "structured_result_missing_material"
+            ]
+          },
+          {
+            "key": "knowledge_grounding",
+            "verdict": "not_run",
+            "score": null,
+            "findings": [
+              "knowledge_not_needed_or_not_used"
+            ]
+          },
+          {
+            "key": "tool_reliability",
+            "verdict": "pass",
+            "score": 100,
+            "findings": []
+          },
+          {
+            "key": "policy_compliance",
+            "verdict": "pass",
+            "score": 100,
+            "findings": []
+          },
+          {
+            "key": "efficiency",
+            "verdict": "pass",
+            "score": 100,
+            "findings": []
+          },
+          {
+            "key": "collaboration_quality",
+            "verdict": "not_run",
+            "score": null,
+            "findings": [
+              "collaboration_not_applicable"
+            ]
+          }
+        ],
+        "semanticJudge": {
+          "status": "not_configured"
+        }
+      },
+      {
+        "at": "2026-10-03T03:28:30.265Z",
+        "fingerprint": "2571c2d489737d187be2ee8480862d50e1973a770d7da0aa087e8ce6456ad41c",
+        "profileKey": "crm_intelligence_v1",
+        "profileRevision": 7,
+        "verdict": "needs_review",
+        "score": 76,
+        "dimensions": [
+          {
+            "key": "task_completion",
+            "verdict": "needs_review",
+            "score": 50,
+            "findings": [
+              "partial_result"
+            ]
+          },
+          {
+            "key": "answer_quality",
+            "verdict": "needs_review",
+            "score": 50,
+            "findings": [
+              "structured_claims_not_independently_verified",
+              "structured_result_missing_material"
+            ]
+          },
+          {
+            "key": "knowledge_grounding",
+            "verdict": "not_run",
+            "score": null,
+            "findings": [
+              "knowledge_not_needed_or_not_used"
+            ]
+          },
+          {
+            "key": "tool_reliability",
+            "verdict": "pass",
+            "score": 100,
+            "findings": []
+          },
+          {
+            "key": "policy_compliance",
+            "verdict": "pass",
+            "score": 100,
+            "findings": []
+          },
+          {
+            "key": "efficiency",
+            "verdict": "pass",
+            "score": 100,
+            "findings": []
+          },
+          {
+            "key": "collaboration_quality",
+            "verdict": "not_run",
+            "score": null,
+            "findings": [
+              "collaboration_not_applicable"
+            ]
+          }
+        ],
+        "semanticJudge": {
+          "status": "completed",
+          "verdict": "pass",
+          "score": 88,
+          "rubricRevision": 1,
+          "judgeId": "workbench_semantic_v1:opencode:space-bunny-free"
+        }
+      },
+      {
+        "at": "2026-10-03T04:03:04.906Z",
+        "fingerprint": "78e2a2be97a22a7b76ddc2543701d559f5986ceb4f1da539914893b8c27005c1",
+        "profileKey": "crm_intelligence_v1",
+        "profileRevision": 8,
+        "verdict": "fail",
+        "score": 32,
+        "dimensions": [
+          {
+            "key": "task_completion",
+            "verdict": "needs_review",
+            "score": 50,
+            "findings": [
+              "partial_result"
+            ]
+          },
+          {
+            "key": "answer_quality",
+            "verdict": "fail",
+            "score": 0,
+            "findings": [
+              "confirmed_memory_not_observed",
+              "memory_claims_require_semantic_review",
+              "structured_claims_not_independently_verified",
+              "structured_result_missing_material"
+            ]
+          },
+          {
+            "key": "knowledge_grounding",
+            "verdict": "not_run",
+            "score": null,
+            "findings": [
+              "knowledge_not_needed_or_not_used"
+            ]
+          },
+          {
+            "key": "tool_reliability",
+            "verdict": "pass",
+            "score": 100,
+            "findings": []
+          },
+          {
+            "key": "policy_compliance",
+            "verdict": "pass",
+            "score": 100,
+            "findings": []
+          },
+          {
+            "key": "efficiency",
+            "verdict": "pass",
+            "score": 100,
+            "findings": []
+          },
+          {
+            "key": "collaboration_quality",
+            "verdict": "not_run",
+            "score": null,
+            "findings": [
+              "collaboration_not_applicable"
+            ]
+          }
+        ],
+        "semanticJudge": {
+          "status": "completed",
+          "verdict": "fail",
+          "score": 32,
+          "rubricRevision": 2,
+          "judgeId": "workbench_semantic_v2:opencode:space-bunny-free"
+        }
+      },
+      {
+        "at": "2026-10-03T04:04:59.078Z",
+        "fingerprint": "ec0ba085e0d3504e3f838280fafcf4740e2965d46a290ae329d6d3cda8e15761",
+        "profileKey": "crm_intelligence_v1",
+        "profileRevision": 8,
+        "verdict": "fail",
+        "score": 66,
+        "dimensions": [
+          {
+            "key": "task_completion",
+            "verdict": "needs_review",
+            "score": 50,
+            "findings": [
+              "partial_result"
+            ]
+          },
+          {
+            "key": "answer_quality",
+            "verdict": "fail",
+            "score": 0,
+            "findings": [
+              "confirmed_memory_not_observed",
+              "memory_claims_require_semantic_review",
+              "structured_claims_not_independently_verified",
+              "structured_result_missing_material"
+            ]
+          },
+          {
+            "key": "knowledge_grounding",
+            "verdict": "not_run",
+            "score": null,
+            "findings": [
+              "knowledge_not_needed_or_not_used"
+            ]
+          },
+          {
+            "key": "tool_reliability",
+            "verdict": "pass",
+            "score": 100,
+            "findings": []
+          },
+          {
+            "key": "policy_compliance",
+            "verdict": "pass",
+            "score": 100,
+            "findings": []
+          },
+          {
+            "key": "efficiency",
+            "verdict": "pass",
+            "score": 100,
+            "findings": []
+          },
+          {
+            "key": "collaboration_quality",
+            "verdict": "not_run",
+            "score": null,
+            "findings": [
+              "collaboration_not_applicable"
+            ]
+          }
+        ],
+        "semanticJudge": {
+          "status": "not_configured"
+        }
+      }
+    ],
+    "boundaries": {
+      "syntheticCustomer": true,
+      "credentialsIncluded": false,
+      "hiddenReasoningIncluded": false,
+      "rawToolBodiesIncluded": false,
+      "mem0": "not_connected",
+      "weknora": "not_connected",
+      "langfuse": "not_connected"
+    }
+  },
+  {
+    "schemaVersion": 1,
+    "provenance": "recorded_real_model_synthetic_crm",
+    "date": "2026-10-03",
+    "runId": "b825d92a-ec59-42c6-9db9-aa66b0cc954c",
+    "task": "[2026-10-03 memory regression] 调用 crm_search_contacts 搜索演示客户林晓梅，调用 crm_get_contact，列出她的人工确认客户记忆并给出沟通建议。分别说明 CRM 确认事实、推断、记忆读取覆盖，以及 Mem0 未连接是否妨碍本地读取。只读，不修改 CRM，不发送消息。",
+    "status": "partial",
+    "mode": "inspect",
+    "startedAt": "2026-10-03T03:51:41.837Z",
+    "completedAt": "2026-10-03T03:53:18.995Z",
+    "independentConfirmedMemoryCount": 1,
+    "modelCalls": [
+      {
+        "purpose": "agent_turn",
+        "provider": "opencode",
+        "model": "space-bunny-free",
+        "status": "ok",
+        "input_tokens": 17369,
+        "output_tokens": 5696,
+        "cache_read_tokens": 24596,
+        "latency_ms": 80922,
+        "cost_cents": "0"
+      },
+      {
+        "purpose": "agent_turn",
+        "provider": "opencode",
+        "model": "space-bunny-free",
+        "status": "ok",
+        "input_tokens": 6608,
+        "output_tokens": 1439,
+        "cache_read_tokens": 128,
+        "latency_ms": 15731,
+        "cost_cents": "0"
+      },
+      {
+        "purpose": "workbench_eval_judge",
+        "provider": "opencode",
+        "model": "space-bunny-free",
+        "status": "ok",
+        "input_tokens": 4110,
+        "output_tokens": 2029,
+        "cache_read_tokens": 141,
+        "latency_ms": 28414,
+        "cost_cents": "0"
+      }
+    ],
+    "tools": [
+      {
+        "name": "crm_search_contacts",
+        "input": {
+          "limit": 10,
+          "query": "林晓梅"
+        },
+        "observation": {
+          "status": "success",
+          "contactsCount": 1
+        }
+      },
+      {
+        "name": "crm_get_org_memory",
+        "input": {},
+        "observation": {
+          "status": "success",
+          "evidenceCount": 0
+        }
+      },
+      {
+        "name": "crm_get_contact",
+        "input": {
+          "contact_id": "[演示对象 ID]"
+        },
+        "observation": {
+          "status": "success",
+          "confirmedCustomerMemory": {
+            "status": "local",
+            "coverage": "complete",
+            "providerStatus": "disabled",
+            "confirmedCount": 1,
+            "facts": [
+              {
+                "body": "[演示合成事实] 林晓梅偏好下午三点沟通；先发送书面说明再预约。不代表真实客户。",
+                "authority": "customer_context_only"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "name": "crm_list_conversations",
+        "input": {
+          "limit": 20,
+          "contact_id": "[演示对象 ID]"
+        },
+        "observation": {
+          "status": "success",
+          "conversationsCount": 1
+        }
+      },
+      {
+        "name": "crm_get_conversation_history",
+        "input": {
+          "limit": 20,
+          "conversation_id": "[演示对象 ID]"
+        },
+        "observation": {
+          "status": "success",
+          "messageCount": 0,
+          "confirmedCustomerMemory": {
+            "status": "local",
+            "coverage": "complete",
+            "providerStatus": "disabled",
+            "confirmedCount": 1,
+            "facts": [
+              {
+                "body": "[演示合成事实] 林晓梅偏好下午三点沟通；先发送书面说明再预约。不代表真实客户。",
+                "authority": "customer_context_only"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "name": "crm_search_knowledge",
+        "input": {},
+        "observation": {
+          "status": "success",
+          "evidenceCount": 0
+        }
+      }
+    ],
+    "events": [
+      {
+        "sequence": 1,
+        "type": "run_started",
+        "at": "2026-10-03T03:51:15.098Z"
+      },
+      {
+        "sequence": 2,
+        "type": "context_loaded",
+        "at": "2026-10-03T03:51:41.871Z"
+      },
+      {
+        "sequence": 3,
+        "type": "context_loaded",
+        "at": "2026-10-03T03:51:41.904Z"
+      },
+      {
+        "sequence": 4,
+        "type": "tool_started",
+        "at": "2026-10-03T03:51:48.908Z",
+        "tool": "crm_search_contacts"
+      },
+      {
+        "sequence": 5,
+        "type": "tool_started",
+        "at": "2026-10-03T03:51:48.956Z",
+        "tool": "crm_get_org_memory"
+      },
+      {
+        "sequence": 6,
+        "type": "tool_completed",
+        "at": "2026-10-03T03:51:49.068Z",
+        "tool": "crm_get_org_memory",
+        "status": "success"
+      },
+      {
+        "sequence": 7,
+        "type": "tool_completed",
+        "at": "2026-10-03T03:51:49.154Z",
+        "tool": "crm_search_contacts",
+        "status": "success"
+      },
+      {
+        "sequence": 8,
+        "type": "model_decision",
+        "at": "2026-10-03T03:51:49.204Z"
+      },
+      {
+        "sequence": 9,
+        "type": "tool_started",
+        "at": "2026-10-03T03:51:56.505Z",
+        "tool": "crm_get_contact"
+      },
+      {
+        "sequence": 10,
+        "type": "tool_started",
+        "at": "2026-10-03T03:51:56.536Z",
+        "tool": "crm_list_conversations"
+      },
+      {
+        "sequence": 11,
+        "type": "tool_completed",
+        "at": "2026-10-03T03:51:56.739Z",
+        "tool": "crm_get_contact",
+        "status": "success"
+      },
+      {
+        "sequence": 12,
+        "type": "tool_completed",
+        "at": "2026-10-03T03:51:56.759Z",
+        "tool": "crm_list_conversations",
+        "status": "success"
+      },
+      {
+        "sequence": 13,
+        "type": "model_decision",
+        "at": "2026-10-03T03:51:56.803Z"
+      },
+      {
+        "sequence": 14,
+        "type": "tool_started",
+        "at": "2026-10-03T03:52:04.368Z",
+        "tool": "crm_get_conversation_history"
+      },
+      {
+        "sequence": 15,
+        "type": "tool_started",
+        "at": "2026-10-03T03:52:04.406Z",
+        "tool": "crm_search_knowledge"
+      },
+      {
+        "sequence": 16,
+        "type": "tool_completed",
+        "at": "2026-10-03T03:52:04.443Z",
+        "tool": "crm_search_knowledge",
+        "status": "success"
+      },
+      {
+        "sequence": 17,
+        "type": "tool_completed",
+        "at": "2026-10-03T03:52:04.673Z",
+        "tool": "crm_get_conversation_history",
+        "status": "success"
+      },
+      {
+        "sequence": 18,
+        "type": "model_decision",
+        "at": "2026-10-03T03:52:04.709Z"
+      },
+      {
+        "sequence": 19,
+        "type": "model_decision",
+        "at": "2026-10-03T03:53:02.843Z"
+      },
+      {
+        "sequence": 20,
+        "type": "model_decision",
+        "at": "2026-10-03T03:53:19.083Z"
+      },
+      {
+        "sequence": 21,
+        "type": "run_partial",
+        "at": "2026-10-03T03:53:19.153Z",
+        "status": "partial"
+      },
+      {
+        "sequence": 22,
+        "type": "usage_reported",
+        "at": "2026-10-03T03:53:19.187Z"
+      }
+    ],
+    "finalAnswer": "只读核对完成：未修改 CRM、未发送消息、未提交提案。\n\n【CRM 确认事实】联系人 林晓梅（source=demo、tags 为空、is_blocked=false、is_anonymized=false、cpf_available=false）；consent 三项（marketing/profiling/transactional）source/version/granted_at 全为 null。人工确认客户记忆为本地读取：status=local、source=crm_confirmed_facts、providerStatus=disabled、coverage=complete、returnedCount=1、readLimit=50（未截断），唯一条目 [演示对象 ID]，category=preference、authority=customer_context_only，revision 8bad85f9…，正文自带\"[演示合成事实]…不代表真实客户\"。会话 761207e2：channel=whatsapp、status=open、unread_count=1、assignee_kind=null、queue_position=null，末条为客户要求转真人客服。\n\n【推断】(1) assignee_kind 空且不在队列却存在 assigned_to_user_name，倾向判断尚未确认完成真人升级，CRM 未显式声明；(2) source=demo 与正文\"演示合成\"标注指向演示合成档案；(3) 偏好记忆与\"立即要人工\"不冲突，但 authority=customer_context_only，仅作上下文、不构成授权或同意；(4) consent 全 null 只代表\"未记录\"，不可推断为拒绝。\n\n【记忆读取覆盖】联系人级与会话级（read_only/available）返回同一条记忆，id 与 revision 一致；messages 为空、checkpoint 与 revision 均为 null，仅能读到末条预览。组织记忆为空（anotacoes=[]、document/entries 为 null、retrieval=empty）；知识库 retrieval=unavailable，无成文升级政策可引用。\n\n【Mem0】未连接不妨碍本地读取：数据来自本地 crm_confirmed_facts 且覆盖完整；但\"完整\"仅限本地确认库，是否存在仅存于 Mem0 的记忆属未知。\n\n【沟通建议（仅建议，未执行）】先由人工确认真人路由状态；回应遵循其偏好顺序——先书面说明、再约时间，时点建议下午三点窗口；不得将该偏好记忆当作营销/画像同意依据。",
+    "evaluations": [
+      {
+        "at": "2026-10-03T04:03:18.282Z",
+        "fingerprint": "3962366f09206638d890fb14b477bec3e02190ed18a17a557c6d12a6493a1ff5",
+        "profileKey": "crm_intelligence_v1",
+        "profileRevision": 8,
+        "verdict": "needs_review",
+        "score": 71,
+        "dimensions": [
+          {
+            "key": "task_completion",
+            "verdict": "needs_review",
+            "score": 50,
+            "findings": [
+              "partial_result"
+            ]
+          },
+          {
+            "key": "answer_quality",
+            "verdict": "needs_review",
+            "score": 50,
+            "findings": [
+              "memory_claims_require_semantic_review",
+              "structured_claims_not_independently_verified",
+              "structured_result_missing_material"
+            ]
+          },
+          {
+            "key": "knowledge_grounding",
+            "verdict": "needs_review",
+            "score": 50,
+            "findings": [
+              "knowledge_evidence_empty"
+            ]
+          },
+          {
+            "key": "tool_reliability",
+            "verdict": "pass",
+            "score": 100,
+            "findings": []
+          },
+          {
+            "key": "policy_compliance",
+            "verdict": "pass",
+            "score": 100,
+            "findings": []
+          },
+          {
+            "key": "efficiency",
+            "verdict": "pass",
+            "score": 100,
+            "findings": []
+          },
+          {
+            "key": "collaboration_quality",
+            "verdict": "not_run",
+            "score": null,
+            "findings": [
+              "collaboration_not_applicable"
+            ]
+          }
+        ],
+        "semanticJudge": {
+          "status": "completed",
+          "verdict": "pass",
+          "score": 92,
+          "rubricRevision": 2,
+          "judgeId": "workbench_semantic_v2:opencode:space-bunny-free"
+        }
+      },
+      {
+        "at": "2026-10-03T04:04:59.065Z",
+        "fingerprint": "e456c375e6ea059adbbe89150f4330dd05d9636d68ae056d2f671a31ac407ff9",
+        "profileKey": "crm_intelligence_v1",
+        "profileRevision": 8,
+        "verdict": "needs_review",
+        "score": 71,
+        "dimensions": [
+          {
+            "key": "task_completion",
+            "verdict": "needs_review",
+            "score": 50,
+            "findings": [
+              "partial_result"
+            ]
+          },
+          {
+            "key": "answer_quality",
+            "verdict": "needs_review",
+            "score": 50,
+            "findings": [
+              "memory_claims_require_semantic_review",
+              "structured_claims_not_independently_verified",
+              "structured_result_missing_material"
+            ]
+          },
+          {
+            "key": "knowledge_grounding",
+            "verdict": "needs_review",
+            "score": 50,
+            "findings": [
+              "knowledge_evidence_empty"
+            ]
+          },
+          {
+            "key": "tool_reliability",
+            "verdict": "pass",
+            "score": 100,
+            "findings": []
+          },
+          {
+            "key": "policy_compliance",
+            "verdict": "pass",
+            "score": 100,
+            "findings": []
+          },
+          {
+            "key": "efficiency",
+            "verdict": "pass",
+            "score": 100,
+            "findings": []
+          },
+          {
+            "key": "collaboration_quality",
+            "verdict": "not_run",
+            "score": null,
+            "findings": [
+              "collaboration_not_applicable"
+            ]
+          }
+        ],
+        "semanticJudge": {
+          "status": "not_configured"
+        }
+      }
+    ],
+    "boundaries": {
+      "syntheticCustomer": true,
+      "credentialsIncluded": false,
+      "hiddenReasoningIncluded": false,
+      "rawToolBodiesIncluded": false,
+      "mem0": "not_connected",
+      "weknora": "not_connected",
+      "langfuse": "not_connected"
+    }
+  }
+]

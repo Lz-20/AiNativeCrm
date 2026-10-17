@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Pi Native CRM — social preview</title>
+  <style>
+    :root { --bg: #fbf8f4; --surface: #f5f0e6; --text: #1c1814; --muted: #5b5043; --accent: #934531; --border: #e6dccb; }
+    * { box-sizing: border-box; }
+    body { width: 1280px; height: 640px; margin: 0; background: var(--bg); color: var(--text); font-family: Arial, sans-serif; display: grid; grid-template-columns: 1fr 1fr; }
+    .rule { position: absolute; inset: 0 0 auto; height: 8px; background: var(--accent); }
+    .left { padding: 78px; display: flex; flex-direction: column; justify-content: space-between; }
+    .wordmark { display: flex; align-items: center; gap: 18px; color: var(--accent); font-size: 42px; font-weight: 700; }
+    .symbol { width: 58px; height: 58px; }
+    .wordmark span:last-child { color: var(--muted); font-size: 24px; letter-spacing: .18em; margin-left: -8px; }
+    .eyebrow { margin-top: 50px; color: var(--muted); letter-spacing: .18em; text-transform: uppercase; font-size: 17px; }
+    h1 { max-width: 520px; margin: 22px 0 0; font-size: 62px; line-height: 1.06; letter-spacing: -.025em; }
+    h1 em { color: var(--accent); font-style: normal; }
+    .sub { max-width: 460px; margin-top: 24px; color: var(--muted); font-size: 25px; line-height: 1.4; }
+    .chips { display: flex; gap: 10px; flex-wrap: wrap; }
+    .chip { padding: 10px 15px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-size: 16px; }
+    .right { border-left: 1px solid var(--border); background: var(--surface); padding: 78px; display: flex; flex-direction: column; justify-content: center; }
+    .right h2 { color: var(--muted); font-size: 16px; letter-spacing: .16em; text-transform: uppercase; }
+    .trail { margin-top: 30px; display: grid; gap: 18px; }
+    .node { display: grid; grid-template-columns: 18px 1fr; gap: 16px; align-items: center; font-size: 22px; }
+    .dot { width: 16px; height: 16px; border: 3px solid var(--accent); border-radius: 50%; }
+    .dot.fill { background: var(--accent); }
+    .node small { display: block; margin-top: 4px; color: var(--muted); font-size: 15px; }
+  </style>
+</head>
+<body>
+  <div class="rule"></div>
+  <section class="left">
+    <div>
+      <div class="wordmark" aria-label="Pi Native CRM">
+        <svg class="symbol" viewBox="0 0 216 216" aria-hidden="true"><path fill="currentColor" d="M26 108V43c0-10 8-18 18-18h54c56 0 91 33 91 81s-35 81-91 81H45l34-34h19c35 0 56-17 56-47s-21-47-56-47H60v49Z"/><rect fill="currentColor" x="26" y="125" width="34" height="34" rx="4"/></svg>
+        <span>Pi Native</span><span>CRM</span>
+      </div>
+      <div class="eyebrow">open source · self-hosted · MIT</div>
+      <h1>The CRM kernel for <em>conversational sales</em></h1>
+      <p class="sub">CRM-owned context and governance, with agent execution powered by Pi Agent Core.</p>
+    </div>
+    <div class="chips"><span class="chip">Multi-tenant RLS</span><span class="chip">WhatsApp</span><span class="chip">One-command install</span></div>
+  </section>
+  <section class="right">
+    <h2>one lead, one trail</h2>
+    <div class="trail">
+      <div class="node"><span class="dot fill"></span><div>Message received<small>channel adapter → CRM context</small></div></div>
+      <div class="node"><span class="dot"></span><div>Agent turn<small>Pi Agent Core → tools → guardrails</small></div></div>
+      <div class="node"><span class="dot"></span><div>Business outcome<small>reply, follow-up, handoff or CRM update</small></div></div>
+    </div>
+  </section>
+</body>
+</html>

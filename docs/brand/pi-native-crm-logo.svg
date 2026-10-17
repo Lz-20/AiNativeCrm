@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 220" role="img" aria-labelledby="title desc">
+  <title id="title">Pi Native CRM</title>
+  <desc id="desc">Pi Native CRM wordmark with a geometric open-Pi symbol.</desc>
+  <g fill="#934531" transform="translate(18 2)">
+    <path d="M26 108V43c0-10 8-18 18-18h54c56 0 91 33 91 81s-35 81-91 81H45l34-34h19c35 0 56-17 56-47s-21-47-56-47H60v49Z"/>
+    <rect x="26" y="125" width="34" height="34" rx="4"/>
+  </g>
+  <text x="255" y="132" fill="#1c1814" font-family="Arial, sans-serif" font-size="66" font-weight="700">Pi Native</text>
+  <text x="258" y="184" fill="#5b5043" font-family="Arial, sans-serif" font-size="36" font-weight="600" letter-spacing="4">CRM</text>
+</svg>

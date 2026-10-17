@@ -1,0 +1,61 @@
+import { mem0SyncHandler } from "@/lib/ai/integrations/mem0";
+import { langfuseExportHandler } from "@/lib/ai/integrations/langfuse";
+import { followupGatilhoPresencaHandler } from "@/lib/followup/gatilho-presenca.handler";
+/**
+ * Centralised handler registration for the event_log dispatcher.
+ *
+ * Imported by the cron drain route (and the workers entry point) so a single
+ * call wires every consumer. Keep it lightweight — no DB calls at import time.
+ */
+
+import { aiResponseHandler } from "@/workers/ai-response-worker.handler";
+import { aiSentimentHandler } from "@/workers/ai-sentiment-worker.handler";
+import { aiHandoffFromSentimentHandler } from "@/workers/ai-handoff-from-sentiment.handler";
+import { ragIndexerHandler } from "@/workers/rag-indexer.handler";
+import { lgpdExportHandler } from "@/workers/lgpd-export-worker.handler";
+import { lgpdRedactHandler } from "@/workers/lgpd-redact-worker.handler";
+import { automationRulesHandler } from "@/lib/automation/engine.handler";
+import { followupReactivityHandler } from "@/lib/followup/reactivity.handler";
+import { followupGatilhoEtapaHandler } from "@/lib/followup/gatilho-etapa.handler";
+import { followupGatilhoCasoHandler } from "@/lib/followup/gatilho-caso.handler";
+import { mediaPersistHandler } from "@/workers/media-persist-worker.handler";
+import { mediaDeriveHandler } from "@/workers/media-derive-worker.handler";
+import { webPushInboundHandler } from "@/lib/notifications/push.handler";
+import { conversaoDeVendaHandler } from "@/lib/conversoes/envio.handler";
+import { avisoDeCasoAoSuporteHandler } from "@/lib/escalacao/aviso-ao-suporte.handler";
+import { registerHandler } from "@/lib/event-log/dispatcher";
+
+let _registered = false;
+
+export function ensureHandlersRegistered(): void {
+  if (_registered) return;
+  // Follow-up de inbound ANTES do LLM: no Hobby o drain da mensagem
+  // estourava no worker de IA e o match_reply nunca lia a resposta.
+  registerHandler(followupReactivityHandler);
+  registerHandler(aiResponseHandler);
+  registerHandler(aiSentimentHandler);
+  registerHandler(aiHandoffFromSentimentHandler);
+  registerHandler(ragIndexerHandler);
+  registerHandler(lgpdExportHandler);
+  registerHandler(lgpdRedactHandler);
+  registerHandler(automationRulesHandler);
+  registerHandler(followupGatilhoEtapaHandler);
+  registerHandler(followupGatilhoCasoHandler);
+  registerHandler(followupGatilhoPresencaHandler);
+  registerHandler(mediaPersistHandler);
+  registerHandler(mediaDeriveHandler);
+  registerHandler(webPushInboundHandler);
+  // Penúltimo, pelo MESMO critério do último: o aviso ao suporte sai por rede de
+  // terceiro (o transporte de WhatsApp) e nunca pode atrasar quem escreve no
+  // banco — inclusive o `followupGatilhoCasoHandler`, que consome o MESMO evento
+  // e cuja falha custa um follow-up perdido. Ele também é o único handler que
+  // adia a si mesmo quando o dreno está rodando dentro de uma requisição.
+  registerHandler(avisoDeCasoAoSuporteHandler);
+  // Por último: reportar a venda ao anúncio é o consumidor mais externo do
+  // fechamento — depende de rede de terceiro e não pode atrasar quem escreve
+  // no banco. Falha dele nunca segura os handlers acima.
+  registerHandler(conversaoDeVendaHandler);
+  registerHandler(langfuseExportHandler);
+  registerHandler(mem0SyncHandler);
+  _registered = true;
+}

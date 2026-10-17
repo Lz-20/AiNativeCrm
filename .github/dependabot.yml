@@ -1,0 +1,22 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      # `@types/node` acompanha o RUNTIME, não o "latest" do npm. O runtime é
+      # Node 22 em toda parte — `engines`, `.nvmrc`, os três Dockerfiles e os
+      # workflows —, e tipagem de um major acima descreve API que não existe em
+      # produção: o `tsc` aprova, o contêiner do cliente quebra em runtime.
+      # Minor e patch dentro do 22 continuam entrando pelo grupo acima.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

@@ -1,0 +1,184 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Chat-first real runtime parity",
+    "subtitle": "Observed evidence and current memory; no demo engine in production",
+    "output": "chat-first-runtime-parity.html",
+    "quality_profile": "standard"
+  },
+  "lanes": [
+    {
+      "id": "data",
+      "label": "Tenant-scoped persisted facts"
+    },
+    {
+      "id": "runtime",
+      "label": "Runtime and policy"
+    },
+    {
+      "id": "ui",
+      "label": "Operator surfaces"
+    }
+  ],
+  "mainPath": [
+    "sources",
+    "runtime",
+    "state",
+    "projection",
+    "ui"
+  ],
+  "nodes": [
+    {
+      "id": "memory",
+      "lane": "data",
+      "col": 0,
+      "type": "service",
+      "label": "Published organization memory",
+      "sublabel": "org-memory.ts; version pointer + active entries"
+    },
+    {
+      "id": "checkpoint",
+      "lane": "data",
+      "col": 1,
+      "type": "service",
+      "label": "Current conversation checkpoint",
+      "sublabel": "customer-memory.ts; service/demanda boundary"
+    },
+    {
+      "id": "sources",
+      "lane": "data",
+      "col": 2,
+      "type": "service",
+      "label": "Allowed Wiki chunks",
+      "sublabel": "busca.ts; tenant/source/index/chunk identity"
+    },
+    {
+      "id": "runtime",
+      "lane": "runtime",
+      "col": 3,
+      "type": "service",
+      "label": "Pi + CRM Harness",
+      "sublabel": "Initial/resumed turns; bounded specialists; parent writer"
+    },
+    {
+      "id": "state",
+      "lane": "data",
+      "col": 4,
+      "type": "service",
+      "label": "Persisted observations and events",
+      "sublabel": "Existing ai_agent_run_states and run events"
+    },
+    {
+      "id": "projection",
+      "lane": "runtime",
+      "col": 5,
+      "type": "service",
+      "label": "Re-authorized evidence + Eval",
+      "sublabel": "workbench-observed-evidence.ts; evaluation material fail-closed"
+    },
+    {
+      "id": "ui",
+      "lane": "ui",
+      "col": 6,
+      "type": "service",
+      "label": "Chat-first Workbench",
+      "sublabel": "Evidence, findings, approval preview, event timeline"
+    },
+    {
+      "id": "commands",
+      "lane": "runtime",
+      "col": 7,
+      "type": "service",
+      "label": "Atomic Mission send policy",
+      "sublabel": "Existing command API; reason + idempotency key"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e0",
+      "from": "memory",
+      "to": "runtime",
+      "label": "reads / supplies context"
+    },
+    {
+      "id": "e1",
+      "from": "checkpoint",
+      "to": "runtime",
+      "label": "reads / supplies context"
+    },
+    {
+      "id": "e2",
+      "from": "sources",
+      "to": "runtime",
+      "label": "reads / supplies context"
+    },
+    {
+      "id": "e3",
+      "from": "runtime",
+      "to": "state",
+      "label": "checked product flow"
+    },
+    {
+      "id": "e4",
+      "from": "state",
+      "to": "projection",
+      "label": "checked product flow"
+    },
+    {
+      "id": "e5",
+      "from": "sources",
+      "to": "projection",
+      "label": "reads / supplies context"
+    },
+    {
+      "id": "e6",
+      "from": "memory",
+      "to": "projection",
+      "label": "reads / supplies context"
+    },
+    {
+      "id": "e7",
+      "from": "projection",
+      "to": "ui",
+      "label": "checked product flow"
+    },
+    {
+      "id": "e8",
+      "from": "ui",
+      "to": "commands",
+      "label": "checked product flow"
+    },
+    {
+      "id": "e9",
+      "from": "commands",
+      "to": "state",
+      "label": "checked product flow"
+    },
+    {
+      "id": "e10",
+      "from": "commands",
+      "to": "runtime",
+      "label": "checked product flow"
+    },
+    {
+      "id": "e11",
+      "from": "ui",
+      "to": "memory",
+      "label": "checked product flow"
+    },
+    {
+      "id": "e12",
+      "from": "ui",
+      "to": "sources",
+      "label": "checked product flow"
+    },
+    {
+      "id": "e13",
+      "from": "runtime",
+      "to": "checkpoint",
+      "label": "reads only current authorized conversation boundary"
+    }
+  ],
+  "cards": []
+}

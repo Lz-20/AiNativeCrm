@@ -1,0 +1,225 @@
+name: crm-agent-services
+services:
+  postgres:
+    image: crm-agent-services-postgres:15.8.1.085
+    pull_policy: never
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run provisioning init}
+    ports: ["127.0.0.1:5438:5432"]
+    volumes: ["postgres-data:/data/pg"]
+    mem_limit: 256m
+    cpus: 0.5
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  mem0:
+    image: crm-agent-services-mem0-local:abb81c88
+    pull_policy: never
+    profiles: [mem0]
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      ADMIN_API_KEY: ${ADMIN_API_KEY:?}
+      JWT_SECRET: ${JWT_SECRET:?}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: postgres
+      POSTGRES_DB: mem0_vector
+      APP_DB_NAME: mem0_app
+      OPENAI_API_KEY: unused-infer-false-local-embedding
+      HISTORY_DB_PATH: /history/history.db
+      MEM0_TELEMETRY: "false"
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      HF_HUB_OFFLINE: "1"
+      OMP_NUM_THREADS: "1"
+      AUTH_DISABLED: "false"
+    ports: ["127.0.0.1:8888:8000"]
+    volumes:
+      - mem0-history:/history
+    depends_on:
+      postgres: { condition: service_healthy }
+    mem_limit: 768m
+    cpus: 1
+    restart: "no"
+  weknora:
+    image: wechatopenai/weknora-app:v0.8.2
+    pull_policy: never
+    profiles: [wiki]
+    environment:
+      DB_DRIVER: postgres
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: postgres
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?}
+      DB_NAME: weknora
+      # Wiki-only integration: no ParadeDB, vector engine or extra embedding pipeline.
+      RETRIEVE_DRIVER: ""
+      REDIS_ADDR: ""
+      STREAM_MANAGER_TYPE: memory
+      STORAGE_TYPE: local
+      LOCAL_STORAGE_BASE_DIR: /data/files
+      SYSTEM_AES_KEY: ${WEKNORA_SYSTEM_AES_KEY:?}
+      SYSTEM_SIGNING_KEY: ${WEKNORA_SIGNING_KEY:?}
+      JWT_SECRET: ${WEKNORA_JWT_SECRET:?}
+      DISABLE_REGISTRATION: ${WEKNORA_DISABLE_REGISTRATION:-true}
+      WEKNORA_SANDBOX_DOCKER_ENABLED: "false"
+      WEKNORA_SANDBOX_MODE: disabled
+      NEO4J_ENABLE: "false"
+      OLLAMA_OPTIONAL: "true"
+      AUTO_MIGRATE: "true"
+      AUTO_RECOVER_DIRTY: "false"
+      LOG_LEVEL: warn
+      GIN_MODE: release
+      CONCURRENCY_POOL_SIZE: "1"
+      HTTP_PROXY: ${SERVICE_HTTP_PROXY:-}
+      HTTPS_PROXY: ${SERVICE_HTTP_PROXY:-}
+      NO_PROXY: localhost,127.0.0.1,postgres,redis,clickhouse,minio
+    ports: ["127.0.0.1:8088:8080"]
+    volumes: ["weknora-files:/data/files"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    mem_limit: 512m
+    cpus: 0.75
+    restart: "no"
+  redis:
+    image: redis:7.2.7-alpine
+    pull_policy: never
+    profiles: [langfuse]
+    command:
+      [
+        "redis-server",
+        "--requirepass",
+        "${REDIS_PASSWORD:?}",
+        "--maxmemory",
+        "32mb",
+        "--maxmemory-policy",
+        "noeviction",
+        "--appendonly",
+        "yes",
+      ]
+    volumes: ["redis-data:/data"]
+    mem_limit: 64m
+    cpus: 0.25
+    restart: "no"
+  clickhouse:
+    image: crm-agent-services-clickhouse:25.12.5.44
+    pull_policy: never
+    profiles: [langfuse]
+    environment:
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?}
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    mem_limit: 768m
+    cpus: 0.75
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  seaweedfs:
+    image: crm-agent-services-seaweedfs:3.95
+    pull_policy: never
+    profiles: [langfuse]
+    command:
+      [
+        "server",
+        "-dir=/data",
+        "-ip=seaweedfs",
+        "-ip.bind=0.0.0.0",
+        "-volume.max=2",
+        "-master.volumeSizeLimitMB=64",
+        "-s3",
+        "-s3.config=/etc/seaweedfs/auth.json",
+      ]
+    ports: ["127.0.0.1:8333:8333"]
+    volumes: ["s3-data:/data", "s3-config:/etc/seaweedfs:ro"]
+    tmpfs: ["/tmp:rw,nosuid,size=16m"]
+    mem_limit: 192m
+    cpus: 0.25
+    restart: "no"
+  langfuse-worker:
+    image: docker.langfuse.com/langfuse/langfuse-worker:4.49.0
+    pull_policy: never
+    profiles: [langfuse]
+    environment: &langfuse-environment
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?}@postgres:5432/langfuse?connection_limit=5
+      NEXTAUTH_URL: http://127.0.0.1:3006
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:?}
+      SALT: ${LANGFUSE_SALT:?}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:?}
+      TELEMETRY_ENABLED: "false"
+      LANGFUSE_IN_APP_AGENT_ENABLED: "false"
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?}
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_AUTH: ${REDIS_PASSWORD:?}
+      REDIS_TLS_ENABLED: "false"
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: crm-local
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_PASSWORD:?}
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://seaweedfs:8333
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: crm-local
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_PASSWORD:?}
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://seaweedfs:8333
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+      NODE_OPTIONS: --max-old-space-size=512
+      LANGFUSE_INGESTION_QUEUE_DELAY_MS: "1000"
+      LANGFUSE_INGESTION_CLICKHOUSE_WRITE_INTERVAL_MS: "1000"
+    depends_on:
+      postgres: { condition: service_healthy }
+      clickhouse: { condition: service_healthy }
+      redis: { condition: service_started }
+      seaweedfs: { condition: service_started }
+    mem_limit: 768m
+    cpus: 0.75
+    restart: "no"
+  langfuse-web:
+    image: docker.langfuse.com/langfuse/langfuse:4.49.0
+    pull_policy: never
+    profiles: [langfuse]
+    environment:
+      <<: *langfuse-environment
+      NODE_OPTIONS: --max-old-space-size=1024
+      LANGFUSE_INIT_ORG_ID: crm-local-demo
+      LANGFUSE_INIT_ORG_NAME: CRM 本地合成联调
+      LANGFUSE_INIT_PROJECT_ID: crm-local-demo-project
+      LANGFUSE_INIT_PROJECT_NAME: CRM Agent Services 验证
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:?}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY:?}
+      LANGFUSE_INIT_USER_EMAIL: agent-services@localhost.test
+      LANGFUSE_INIT_USER_NAME: Local Validation
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_USER_PASSWORD:?}
+    depends_on:
+      postgres: { condition: service_healthy }
+      clickhouse: { condition: service_healthy }
+      redis: { condition: service_started }
+      seaweedfs: { condition: service_started }
+    ports: ["127.0.0.1:3006:3000"]
+    mem_limit: 1536m
+    cpus: 0.75
+    restart: "no"
+volumes:
+  postgres-data:
+  mem0-history:
+  weknora-files:
+  redis-data:
+  clickhouse-data:
+  s3-data:
+  s3-config:
+    name: crm-agent-services-s3-config
+    external: true

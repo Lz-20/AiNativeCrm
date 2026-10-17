@@ -1,0 +1,6 @@
+{
+  "max_sessions_per_day": 12,
+  "main_checkout": "~/pi-native-crm",
+  "parallel_ui_lane": false,
+  "smoke": "pnpm typecheck && pnpm lint && pnpm test:unit"
+}

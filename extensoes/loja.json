@@ -1,0 +1,31 @@
+{
+  "pi-native-crm/retorno-de-paciente": {
+    "publisher_label": "Pi Native CRM",
+    "repository": "https://github.com/luckiest-draw/AiNativeCrm",
+    "tags": [
+      "clinica",
+      "retorno",
+      "agenda"
+    ],
+    "published_at": "2026-09-18"
+  },
+  "pi-native-crm/carrinho-abandonado": {
+    "publisher_label": "Pi Native CRM",
+    "repository": "https://github.com/luckiest-draw/AiNativeCrm",
+    "tags": [
+      "ecommerce",
+      "vendas",
+      "recuperacao"
+    ],
+    "published_at": "2026-09-18"
+  },
+  "pi-native-crm/primeira-semana": {
+    "publisher_label": "Pi Native CRM",
+    "repository": "https://github.com/luckiest-draw/AiNativeCrm",
+    "tags": [
+      "equipe",
+      "treinamento"
+    ],
+    "published_at": "2026-09-18"
+  }
+}

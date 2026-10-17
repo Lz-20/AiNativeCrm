@@ -1,0 +1,214 @@
+#!/usr/bin/env bash
+# Prova dos scripts da skill pi-native-contribuir num repositório git DESCARTÁVEL.
+# Nada aqui toca o clone de quem roda: cada caso cria um repo em diretório
+# temporário, com um "origin" local fazendo o papel do repositório principal.
+#
+#   bash tests/shell/pi-native-contribuir.test.sh
+#
+# O que está sob prova:
+#   1. quem-sou.sh diz "contribuidor" sem login e "mantenedor" quando o `gh`
+#      informa a conta principal — sem rede (o gh é dublado no PATH).
+#   2. check-migration-triple.sh BLOQUEIA migration nova sem baseline/MANIFEST,
+#      BLOQUEIA NNNN e timestamp já usados na origin/main, e DEIXA PASSAR a
+#      tripla completa com número livre. Bypass PI_NATIVE_MIGRATION_EDIT=1.
+#   3. pre-push BLOQUEIA refs/heads/main e deixa passar uma feature branch.
+#   4. armar-hooks.sh grava core.hooksPath, recusa sobrescrever hooks alheios,
+#      e --desarmar limpa.
+#   5. pre-voo.sh acusa CHANGELOG à mão, migration sem tripla e branch atrasada,
+#      e sai com 0 (é medição, não veredito).
+#   6. sessao.sh lembra o contribuidor e cala para o mantenedor.
+#   7. O bloco do Passo 0 do SKILL.md — extraído do guia e EXECUTADO, em bash e zsh —
+#      sempre dá uma resposta ou um erro que se explica: também numa subpasta do clone,
+#      num clone sem o script e fora de qualquer clone, com e sem a instalação global.
+set -uo pipefail
+
+SKILL="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.agents/skills/pi-native-contribuir" && pwd)"
+SCRIPTS="$SKILL/scripts"
+falhas=0; casos=0
+ok()   { casos=$((casos+1)); printf '  ✓ %s\n' "$1"; }
+falha(){ casos=$((casos+1)); falhas=$((falhas+1)); printf '  ✗ %s\n     %s\n' "$1" "${2:-}"; }
+assert_contains() { if grep -q -- "$2" <<<"$1"; then ok "$3"; else falha "$3" "esperava conter '$2'; saída: $(head -c 300 <<<"$1")"; fi; }
+assert_not_contains() { if grep -q -- "$2" <<<"$1"; then falha "$3" "não esperava '$2'; saída: $(head -c 300 <<<"$1")"; else ok "$3"; fi; }
+assert_exit() { if [ "$1" = "$2" ]; then ok "$3"; else falha "$3" "exit esperado $2, veio $1"; fi; }
+
+# gh dublado: quem-sou.sh não depende da rede nem da conta de quem roda o teste.
+FAKEBIN="$(mktemp -d)"; printf '#!/usr/bin/env bash\n[ -n "${FAKE_GH_LOGIN:-}" ] || exit 1\nprintf "%%s\\n" "$FAKE_GH_LOGIN"\n' > "$FAKEBIN/gh"; chmod +x "$FAKEBIN/gh"
+export PATH="$FAKEBIN:$PATH"
+
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP" "$FAKEBIN"' EXIT
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+# ── isolamento do git: nada aqui escreve fora de "$TMP" ─────────────────────
+# Um `cfg "$dir" user.*` grava onde o git RESOLVER o repositório, e não
+# necessariamente em "$dir": um GIT_DIR herdado (rodar de dentro de um hook, de um
+# `rebase --exec`) manda por cima do -C; "$dir" que não é repositório sobe até o
+# pai. Foi assim que "Pessoa <alguem@fork.dev>" parou no .git/config do checkout
+# compartilhado em 10/09/2026 e assinou 829 commits da main. Aqui o config É o dado
+# sob teste (o quem-sou.sh lê `user.email`), então a identidade não pode ir para o
+# ambiente. Em vez disso:
+#   1. zera o ambiente local do git herdado — o idioma canônico do próprio git;
+#   2. a descoberta de repositório nunca sobe para fora de "$TMP";
+#   3. toda escrita de config é `--file <clone>/.git/config` (`cfg`), que não
+#      resolve repositório nenhum: alvo errado é erro alto, nunca o repo de quem roda;
+#   4. todo `cd` para um clone aborta se o clone não existir.
+unset $(git rev-parse --local-env-vars)
+export GIT_CEILING_DIRECTORIES="$TMP"
+cfg() { local alvo="$1"; shift; git config --file "$alvo/.git/config" "$@"; }
+
+# ── um "repositório principal" mínimo, com uma migration já aplicada ─────────
+principal="$TMP/principal"; mkdir -p "$principal"
+git -C "$principal" init -q -b main
+cfg "$principal" user.email "mantenedor@exemplo.com"; cfg "$principal" user.name "Mantenedor"
+mkdir -p "$principal/supabase/migrations" "$principal/.agents/skills/pi-native-contribuir/scripts/hooks"
+cp -R "$SCRIPTS"/. "$principal/.agents/skills/pi-native-contribuir/scripts/"
+printf 'select 1;\n' > "$principal/supabase/migrations/20260101120000_0200_existente.sql"
+printf -- '-- baseline\n' > "$principal/supabase/baseline.sql"
+printf '| `20260101120000` | `0200_existente` |\n' > "$principal/supabase/migrations/MANIFEST.md"
+printf '# Changelog\n' > "$principal/CHANGELOG.md"
+printf 'X=1\n' > "$principal/.env.example"
+git -C "$principal" add -A && git -C "$principal" commit -q -m "base"
+
+clonar() { # $1 = destino, $2 = e-mail do contribuidor
+  rm -rf "$1"; git clone -q "$principal" "$1"
+  cfg "$1" user.email "$2"; cfg "$1" user.name "Pessoa"
+  cfg "$1" core.hooksPath ".agents/skills/pi-native-contribuir/scripts/hooks"
+  chmod +x "$1"/.agents/skills/pi-native-contribuir/scripts/*.sh "$1"/.agents/skills/pi-native-contribuir/scripts/hooks/*
+}
+
+echo "1. quem-sou.sh"
+clone="$TMP/c1"; clonar "$clone" "alguem@fork.dev"
+saida="$(cd "$clone" && bash .agents/skills/pi-native-contribuir/scripts/quem-sou.sh)"
+assert_contains "$saida" "^contribuidor" "e-mail desconhecido → contribuidor"
+assert_contains "$saida" "alguem@fork.dev" "a saída explica o motivo (o e-mail)"
+saida="$(cd "$clone" && FAKE_GH_LOGIN=luckiest-draw bash .agents/skills/pi-native-contribuir/scripts/quem-sou.sh --curto)"
+assert_contains "$saida" "^mantenedor$" "gh logado como conta principal → mantenedor (--curto)"
+saida="$(cd "$clone" && FAKE_GH_LOGIN=outra-conta bash .agents/skills/pi-native-contribuir/scripts/quem-sou.sh)"
+assert_contains "$saida" "^contribuidor" "gh logado como outra conta → contribuidor"
+
+echo "2. check-migration-triple.sh (pre-commit)"
+clone="$TMP/c2"; clonar "$clone" "alguem@fork.dev"
+cd "$clone" || exit 1; git switch -q -c fix/algo
+printf 'select 2;\n' > supabase/migrations/20260909100000_0201_nova.sql
+git add supabase/migrations/20260909100000_0201_nova.sql
+saida="$(git commit -q -m "migration sem tripla" 2>&1)"; code=$?
+assert_exit "$code" 1 "migration sem baseline/MANIFEST é bloqueada"
+assert_contains "$saida" "sem apêndice em supabase/baseline.sql" "a mensagem nomeia o baseline"
+assert_contains "$saida" "sem linha em supabase/migrations/MANIFEST.md" "a mensagem nomeia o MANIFEST (acumula, não para no primeiro)"
+printf -- '-- apêndice 0201\n' >> supabase/baseline.sql
+printf '| `20260909100000` | `0201_nova` |\n' >> supabase/migrations/MANIFEST.md
+git add -A
+saida="$(git commit -q -m "migration com tripla" 2>&1)"; code=$?
+assert_exit "$code" 0 "tripla completa com número livre passa"
+# colisão de NNNN e de timestamp com a origin/main
+printf 'select 3;\n' > supabase/migrations/20260101120000_0200_colide.sql
+printf -- '-- x\n' >> supabase/baseline.sql; printf '| x | `0200_colide` |\n' >> supabase/migrations/MANIFEST.md
+git add -A
+saida="$(git commit -q -m "colisao" 2>&1)"; code=$?
+assert_exit "$code" 1 "NNNN/timestamp já usados na origin/main são bloqueados"
+assert_contains "$saida" "NNNN=0200" "acusa o NNNN"
+assert_contains "$saida" "timestamp 20260101120000" "acusa o timestamp (os dois de uma vez)"
+saida="$(PI_NATIVE_MIGRATION_EDIT=1 git commit -q -m "bypass" 2>&1)"; code=$?
+assert_exit "$code" 0 "PI_NATIVE_MIGRATION_EDIT=1 é o bypass explícito"
+git reset -q --hard HEAD~1 2>/dev/null
+
+echo "3. pre-push"
+saida="$(printf 'refs/heads/fix/algo %s refs/heads/main %s\n' "$(git rev-parse HEAD)" "$(git rev-parse HEAD)" | bash .agents/skills/pi-native-contribuir/scripts/hooks/pre-push origin x 2>&1)"; code=$?
+assert_exit "$code" 1 "push para refs/heads/main é bloqueado"
+assert_contains "$saida" "a main é produção" "a mensagem explica"
+saida="$(printf 'refs/heads/fix/algo %s refs/heads/fix/algo %s\n' "$(git rev-parse HEAD)" "0000000000000000000000000000000000000000" | bash .agents/skills/pi-native-contribuir/scripts/hooks/pre-push origin x 2>&1)"; code=$?
+assert_exit "$code" 0 "push de feature branch passa"
+
+echo "4. armar-hooks.sh"
+clone="$TMP/c4"; clonar "$clone" "alguem@fork.dev"; cfg "$clone" --unset core.hooksPath
+cd "$clone" || exit 1
+saida="$(bash .agents/skills/pi-native-contribuir/scripts/armar-hooks.sh 2>&1)"; code=$?
+assert_exit "$code" 0 "arma sem erro"
+assert_contains "$(git config --get core.hooksPath)" "pi-native-contribuir/scripts/hooks" "core.hooksPath aponta para os hooks do contribuidor"
+cfg "$clone" core.hooksPath loop/hooks
+saida="$(bash .agents/skills/pi-native-contribuir/scripts/armar-hooks.sh 2>&1)"; code=$?
+assert_exit "$code" 2 "recusa sobrescrever hooks alheios (loop/hooks do mantenedor)"
+assert_contains "$(git config --get core.hooksPath)" "^loop/hooks$" "core.hooksPath intacto"
+cfg "$clone" core.hooksPath ".agents/skills/pi-native-contribuir/scripts/hooks"
+saida="$(bash .agents/skills/pi-native-contribuir/scripts/armar-hooks.sh --desarmar 2>&1)"
+assert_exit "$?" 0 "--desarmar sai com 0"
+if git config --get core.hooksPath >/dev/null; then falha "--desarmar limpa core.hooksPath"; else ok "--desarmar limpa core.hooksPath"; fi
+
+echo "5. pre-voo.sh"
+clone="$TMP/c5"; clonar "$clone" "root@vps-123.hostgator.com.br"
+cd "$clone" || exit 1; git switch -q -c feat/coisa
+# a main anda (branch atrasada) — commit direto no principal
+printf 'select 9;\n' > "$principal/outro.txt"; git -C "$principal" add -A; git -C "$principal" commit -q -m "main anda"
+printf '## [9.9.9] - à mão\n' >> CHANGELOG.md
+printf 'select 4;\n' > supabase/migrations/20260909110000_0202_sem_tripla.sql
+git add -A; PI_NATIVE_MIGRATION_EDIT=1 git commit -q -m "pr com problemas"
+saida="$(bash .agents/skills/pi-native-contribuir/scripts/pre-voo.sh 2>&1)"; code=$?
+assert_exit "$code" 0 "pre-voo sai com 0 mesmo com problemas (é medição)"
+assert_contains "$saida" "commit(s) atrás de origin/main" "acusa branch atrasada"
+assert_contains "$saida" "seção de versão à mão no CHANGELOG.md" "acusa CHANGELOG à mão"
+assert_contains "$saida" "SEM apêndice em supabase/baseline.sql" "acusa migration sem baseline"
+assert_contains "$saida" "assinados como máquina" "acusa autoria root@vps"
+assert_contains "$saida" "checks obrigatórios NÃO MEDIDOS" "sem gh, declara o não medido em vez de copiar a lista"
+git switch -q main 2>/dev/null
+saida="$(bash .agents/skills/pi-native-contribuir/scripts/pre-voo.sh 2>&1)"
+assert_contains "$saida" "você está na 'main'" "na main, manda abrir branch"
+
+echo "6. sessao.sh (hook de início de sessão)"
+clone="$TMP/c6"; clonar "$clone" "alguem@fork.dev"; cfg "$clone" --unset core.hooksPath
+saida="$(cd "$clone" && bash .agents/skills/pi-native-contribuir/scripts/hooks/sessao.sh)"; code=$?
+assert_exit "$code" 0 "sai com 0"
+assert_contains "$saida" "clone é de um contribuidor" "contribuidor recebe o lembrete"
+assert_contains "$saida" "NÃO armados" "diz que os hooks não estão armados"
+cfg "$clone" core.hooksPath ".agents/skills/pi-native-contribuir/scripts/hooks"
+saida="$(cd "$clone" && bash .agents/skills/pi-native-contribuir/scripts/hooks/sessao.sh)"
+assert_contains "$saida" "contribuidor armados" "com hooks armados, diz que estão"
+cfg "$clone" user.email "mantenedor@exemplo.com"
+saida="$(cd "$clone" && FAKE_GH_LOGIN=luckiest-draw bash .agents/skills/pi-native-contribuir/scripts/hooks/sessao.sh)"; code=$?
+assert_exit "$code" 0 "mantenedor: sai com 0"
+if [ -z "$saida" ]; then ok "mantenedor: silêncio total"; else falha "mantenedor: silêncio total" "saída: $saida"; fi
+
+echo "7. Passo 0 do SKILL.md (o bloco que o guia manda colar)"
+# O bloco é LIDO do guia, não copiado para cá: o que está sob prova é o que a pessoa cola. Ele
+# já foi um laço que, sem o script ao alcance, não imprimia nada — e o gate do guia ("se a
+# resposta começar com...") ficava sem resposta para ler.
+bloco="$TMP/passo0.sh"
+awk '/^## Passo 0/ { p = 1 } p && /^```bash$/ { dentro = 1; next } dentro && /^```$/ { exit } dentro { print }' "$SKILL/SKILL.md" > "$bloco"
+if grep -q 'quem-sou.sh' "$bloco"; then ok "o bloco foi extraído do SKILL.md (guarda de vacuidade)"; else falha "o bloco foi extraído do SKILL.md (guarda de vacuidade)" "nada casou entre '## Passo 0' e o primeiro bloco bash"; fi
+sem_guias="$TMP/home-sem-guias"; mkdir -p "$sem_guias"
+com_guias="$TMP/home-com-guias"; mkdir -p "$com_guias/.claude/skills"; cp -R "$SKILL" "$com_guias/.claude/skills/"
+clone7="$TMP/c7"; clonar "$clone7" "alguem@fork.dev"; mkdir -p "$clone7/app/api"
+antigo="$TMP/c7-antigo"; git init -q "$antigo"; mkdir -p "$antigo/app"   # fork de antes do script
+fora="$TMP/fora-de-clone"; mkdir -p "$fora"
+passo0() {  # passo0 <shell> <home> <pasta> → $out, $err, $code
+  out="$(cd "$3" && HOME="$2" "$1" "$bloco" 2>"$TMP/passo0.err")"; code=$?
+  err="$(cat "$TMP/passo0.err")"
+}
+# zsh é o shell padrão do macOS, onde a pessoa cola; -f para não ler o .zshrc de quem roda o teste.
+printf '#!/bin/sh\nexec zsh -f "$@"\n' > "$TMP/zsh-sem-rc"; chmod +x "$TMP/zsh-sem-rc"
+for sh in bash zsh; do
+  if ! command -v "$sh" >/dev/null 2>&1; then echo "  ($sh ausente nesta máquina: o bloco NÃO foi medido nele)"; continue; fi
+  cmd="$sh"; [ "$sh" = bash ] || cmd="$TMP/zsh-sem-rc"
+  passo0 "$cmd" "$sem_guias" "$clone7"
+  assert_contains "$out" "^contribuidor — e-mail do git: alguem@fork.dev" "($sh) raiz do clone, sem instalação global: responde pelo script do clone"
+  passo0 "$cmd" "$sem_guias" "$clone7/app/api"
+  assert_contains "$out" "^contribuidor — e-mail do git: alguem@fork.dev" "($sh) subpasta do clone, sem instalação global: responde igual à raiz"
+  cfg "$clone7" user.email "mantenedor@exemplo.com"
+  export FAKE_GH_LOGIN=luckiest-draw
+  passo0 "$cmd" "$sem_guias" "$clone7/app/api"
+  unset FAKE_GH_LOGIN
+  assert_contains "$out" "^mantenedor" "($sh) subpasta do clone do mantenedor: responde mantenedor (o guia não o trata como contribuidor)"
+  cfg "$clone7" user.email "alguem@fork.dev"
+  passo0 "$cmd" "$sem_guias" "$antigo/app"
+  if [ "$code" != 0 ] && [ -z "$out" ]; then ok "($sh) clone sem o script, sem instalação global: sai com erro e sem resposta inventada"; else falha "($sh) clone sem o script, sem instalação global: sai com erro e sem resposta inventada" "code=$code out=$out"; fi
+  assert_contains "$err" "^NÃO MEDIDO — não achei o quem-sou.sh no clone .*c7-antigo" "($sh) e o erro diz o que não achou e onde procurou"
+  assert_contains "$err" "comando de uma linha do README (https://github.com/luckiest-draw/AiNativeCrm#readme) e rode de novo" "($sh) e diz como sair dali"
+  passo0 "$cmd" "$sem_guias" "$fora"
+  if [ "$code" != 0 ] && [ -z "$out" ]; then ok "($sh) fora de clone, sem instalação global: sai com erro e sem resposta inventada"; else falha "($sh) fora de clone, sem instalação global: sai com erro e sem resposta inventada" "code=$code out=$out"; fi
+  assert_contains "$err" "^NÃO MEDIDO — não achei o quem-sou.sh nem nas pastas globais" "($sh) e o erro não finge que havia clone"
+  passo0 "$cmd" "$com_guias" "$fora"
+  if [ "$code" = 0 ] && [ "$out" = "contribuidor — fora de um clone git" ]; then ok "($sh) fora de clone, com instalação global: a resposta que o guia promete"; else falha "($sh) fora de clone, com instalação global: a resposta que o guia promete" "code=$code out=$out err=$err"; fi
+  passo0 "$cmd" "$com_guias" "$antigo/app"
+  assert_contains "$out" "^contribuidor — e-mail do git: " "($sh) clone sem o script, com instalação global: mede o clone pelo script global"
+done
+
+echo
+if [ "$falhas" = 0 ]; then echo "pi-native-contribuir: $casos casos, todos verdes"; exit 0
+else echo "pi-native-contribuir: $falhas de $casos casos vermelhos"; exit 1; fi

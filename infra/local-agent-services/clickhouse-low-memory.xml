@@ -1,0 +1,17 @@
+<clickhouse>
+  <!-- Local single-user validation, not a production sizing recommendation. -->
+  <max_server_memory_usage>536870912</max_server_memory_usage>
+  <mark_cache_size>16777216</mark_cache_size>
+  <uncompressed_cache_size>16777216</uncompressed_cache_size>
+  <background_pool_size>4</background_pool_size>
+  <background_schedule_pool_size>8</background_schedule_pool_size>
+  <background_buffer_flush_schedule_pool_size>2</background_buffer_flush_schedule_pool_size>
+  <background_message_broker_schedule_pool_size>2</background_message_broker_schedule_pool_size>
+  <background_distributed_schedule_pool_size>2</background_distributed_schedule_pool_size>
+  <max_thread_pool_size>128</max_thread_pool_size>
+  <merge_tree>
+    <number_of_free_entries_in_pool_to_lower_max_size_of_merge>0</number_of_free_entries_in_pool_to_lower_max_size_of_merge>
+    <number_of_free_entries_in_pool_to_execute_mutation>0</number_of_free_entries_in_pool_to_execute_mutation>
+    <number_of_free_entries_in_pool_to_execute_optimize_entire_partition>0</number_of_free_entries_in_pool_to_execute_optimize_entire_partition>
+  </merge_tree>
+</clickhouse>

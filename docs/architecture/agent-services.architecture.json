@@ -1,0 +1,201 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Optional Agent services",
+    "subtitle": "Customer context, company knowledge and sanitized observations have separate ownership",
+    "output": "agent-services.html",
+    "quality_profile": "standard"
+  },
+  "lanes": [
+    {
+      "id": "config",
+      "label": "config"
+    },
+    {
+      "id": "human",
+      "label": "human"
+    },
+    {
+      "id": "core",
+      "label": "core"
+    },
+    {
+      "id": "external",
+      "label": "external"
+    }
+  ],
+  "mainPath": [
+    "contact",
+    "sql",
+    "pi",
+    "outbox",
+    "langfuse"
+  ],
+  "nodes": [
+    {
+      "id": "settings",
+      "lane": "config",
+      "col": 0,
+      "type": "service",
+      "label": "Administrator activation + trusted binding"
+    },
+    {
+      "id": "contact",
+      "lane": "human",
+      "col": 1,
+      "type": "service",
+      "label": "Manager confirms customer memory"
+    },
+    {
+      "id": "sql",
+      "lane": "core",
+      "col": 2,
+      "type": "service",
+      "label": "SQL facts, privacy receipts and Mission approvals"
+    },
+    {
+      "id": "mem0",
+      "lane": "external",
+      "col": 3,
+      "type": "service",
+      "label": "Mem0 scoped ranking and controlled projection"
+    },
+    {
+      "id": "corpus",
+      "lane": "human",
+      "col": 4,
+      "type": "service",
+      "label": "Published Agent corpus"
+    },
+    {
+      "id": "wiki",
+      "lane": "external",
+      "col": 0,
+      "type": "service",
+      "label": "WeKnora uniform-visibility product Wiki"
+    },
+    {
+      "id": "evidence",
+      "lane": "core",
+      "col": 1,
+      "type": "service",
+      "label": "Immutable observed-page manifest"
+    },
+    {
+      "id": "pi",
+      "lane": "core",
+      "col": 2,
+      "type": "service",
+      "label": "Pi actual model and tool boundaries"
+    },
+    {
+      "id": "outbox",
+      "lane": "core",
+      "col": 3,
+      "type": "service",
+      "label": "Isolated durable integration lane"
+    },
+    {
+      "id": "langfuse",
+      "lane": "external",
+      "col": 4,
+      "type": "service",
+      "label": "Langfuse OTLP and score projection"
+    },
+    {
+      "id": "eval",
+      "lane": "core",
+      "col": 0,
+      "type": "service",
+      "label": "Canonical CRM Eval + independently scoped memory existence"
+    },
+    {
+      "id": "ui",
+      "lane": "human",
+      "col": 1,
+      "type": "service",
+      "label": "Contact, provider and Workbench surfaces"
+    }
+  ],
+  "edges": [
+    {
+      "from": "sql",
+      "to": "pi",
+      "label": "Confirmed facts available even with Mem0 off"
+    },
+    {
+      "from": "sql",
+      "to": "eval",
+      "label": "Privacy-scoped existence throughout the run, no body export"
+    },
+    {
+      "from": "settings",
+      "to": "mem0"
+    },
+    {
+      "from": "contact",
+      "to": "sql"
+    },
+    {
+      "from": "sql",
+      "to": "mem0"
+    },
+    {
+      "from": "mem0",
+      "to": "pi"
+    },
+    {
+      "from": "settings",
+      "to": "wiki"
+    },
+    {
+      "from": "corpus",
+      "to": "wiki"
+    },
+    {
+      "from": "wiki",
+      "to": "evidence"
+    },
+    {
+      "from": "evidence",
+      "to": "pi"
+    },
+    {
+      "from": "pi",
+      "to": "sql"
+    },
+    {
+      "from": "pi",
+      "to": "outbox"
+    },
+    {
+      "from": "eval",
+      "to": "outbox"
+    },
+    {
+      "from": "settings",
+      "to": "outbox"
+    },
+    {
+      "from": "outbox",
+      "to": "langfuse"
+    },
+    {
+      "from": "sql",
+      "to": "ui"
+    },
+    {
+      "from": "evidence",
+      "to": "ui"
+    },
+    {
+      "from": "langfuse",
+      "to": "ui"
+    },
+    {
+      "from": "ui",
+      "to": "contact"
+    }
+  ]
+}
