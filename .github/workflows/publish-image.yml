@@ -338,7 +338,7 @@ jobs:
             -e SUPABASE_SERVICE_ROLE_KEY=chave-de-mentira \
             -e SUPABASE_DB_URL=postgres://u:p@127.0.0.1:5432/postgres \
             -e SENTRY_DSN=off \
-            pi-native-smoke:pr
+            pi-native-crm-smoke:pr
 
           # Espera o boot; falha rápido se o processo morreu (crashloop).
           pronto=nao
@@ -394,7 +394,7 @@ jobs:
             -v "$PWD/tests/fixtures/sample-text.pdf:/fixture.pdf:ro" \
             -v "$PWD/scripts/sonda-pdf-na-imagem.mjs:/sonda-pdf-na-imagem.mjs:ro" \
             -e PDF_ESPERADO="pi-native-crm RAG fixture" \
-            pi-native-smoke:pr node /sonda-pdf-na-imagem.mjs
+            pi-native-crm-smoke:pr node /sonda-pdf-na-imagem.mjs
 
       - name: Encerrar
         if: always()
