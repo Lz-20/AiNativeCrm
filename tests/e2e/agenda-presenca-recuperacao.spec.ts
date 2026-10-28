@@ -33,7 +33,9 @@ async function rpc(name: string, args: Record<string, unknown>) {
 }
 async function fixture() {
   const email = `presenca-${randomUUID()}@invariant.test`;
-  const { data, error } = await db.auth.admin.createUser({ email, password, email_confirm: true });
+  const { data, error } = await db.auth.admin.createUser({
+    email, password, email_confirm: true, user_metadata: { locale: "pt-BR" },
+  });
   if (error || !data.user) throw error;
   const user = data.user.id;
   users.push(user);
@@ -140,9 +142,11 @@ async function inbound(
 async function login(page: Page, email: string) {
   await page.context().clearCookies();
   await page.goto("/login");
-  await page.getByLabel(/e-?mail/i).fill(email);
-  await page.getByLabel(/senha/i).fill(password);
-  await page.getByRole("button", { name: /entrar/i }).click();
+  // O cenário de datas usa navegador en-US; a tela anônima pode resolver
+  // outro idioma. A preferência PT é da conta e só vale depois do login.
+  await page.locator("#email").fill(email);
+  await page.locator("#password").fill(password);
+  await page.locator('form button[type="submit"]').click();
   await page.waitForURL(/\/app(?:\/|$)/, { timeout: 60000 });
 }
 async function detail(page: Page, id: string, title: string) {
@@ -971,7 +975,9 @@ test("Radar recorta demandas pela RLS real, além do pool frio, e preserva gest�
   const members: Record<string, { id: string; email: string }> = {};
   for (const role of ["agent", "other", "manager", "viewer"]) {
     const email = `radar-${role}-${randomUUID()}@invariant.test`;
-    const made = await db.auth.admin.createUser({ email, password, email_confirm: true });
+    const made = await db.auth.admin.createUser({
+      email, password, email_confirm: true, user_metadata: { locale: "pt-BR" },
+    });
     if (made.error || !made.data.user) throw made.error;
     const id = made.data.user.id;
     users.push(id);

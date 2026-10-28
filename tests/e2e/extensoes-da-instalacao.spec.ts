@@ -22,10 +22,24 @@ import { expect, test } from "@playwright/test";
 
 import { lerCreds, loginComoAdmin, loginComoDono } from "./helpers/login-admin";
 import { afirmarDonoDoServidor } from "./utils/precondicao";
+import { credenciaisSupabaseDeTeste } from "../../scripts/lib/env-de-teste";
+import { criarFixtureIdiomaDoDonoLocal } from "./helpers/idioma-do-dono-local";
 
 test.describe("Extensões da instalação", () => {
+  let idioma: Awaited<ReturnType<typeof criarFixtureIdiomaDoDonoLocal>> | undefined;
   test.beforeAll(async () => {
-    await afirmarDonoDoServidor(lerCreds().users.dono!.email);
+    // Estas asserções são em português; o padrão da instalação pode ser outro.
+    // A guarda local precede até lerCreds(), que pode semear se o arquivo faltar.
+    idioma = await criarFixtureIdiomaDoDonoLocal(
+      credenciaisSupabaseDeTeste(), "e2e-dono@pi-native.test",
+    );
+    const dono = lerCreds().users.dono!.email;
+    expect(dono).toBe("e2e-dono@pi-native.test");
+    await idioma.aplicar();
+    await afirmarDonoDoServidor(dono);
+  });
+  test.afterAll(async () => {
+    await idioma?.restaurar();
   });
 
   test.describe("como dono do servidor", () => {

@@ -50,6 +50,8 @@ export default defineConfig({
       "tests/e2e/**",
       "tests/invariants/**",
       "tests/journeys/**",
+      // POSIX signals use node:test, executed by test:shell on Linux.
+      "tests/shell/redacted-runtime-signals.test.cjs",
       // Bancada opcional: usa node:test, PostgreSQL próprio e Playwright com
       // configuração dedicada. Não depende do ambiente da suíte do produto.
       "experiments/extensoes/**",
