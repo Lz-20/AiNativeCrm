@@ -20,6 +20,7 @@
  * que ramifica cresce, e crescer sem limite é o jeito de transformar a correção
  * num problema novo.
  */
+import { appUrlAtOrigin } from "./utils/app-url";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -59,7 +60,7 @@ async function login(page: Page, email: string): Promise<void> {
   await page.locator("#email").fill(email);
   await page.locator("#password").fill(creds.password);
   await page.getByRole("button", { name: /entrar/i }).click();
-  await page.waitForURL(/\/app\//, { timeout: PRAZO });
+  await page.waitForURL(appUrlAtOrigin(test.info().project.use.baseURL!), { timeout: PRAZO });
 }
 
 /**

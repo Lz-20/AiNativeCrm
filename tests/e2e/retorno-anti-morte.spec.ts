@@ -17,6 +17,7 @@
  *
  * O seed roda a cada execução e reseta o retorno, então o teste é repetível.
  */
+import { appUrlAtOrigin } from "./utils/app-url";
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -64,7 +65,7 @@ async function login(page: Page, email: string): Promise<void> {
   await page.locator("#email").fill(email);
   await page.locator("#password").fill(creds.password);
   await page.getByRole("button", { name: /entrar/i }).click();
-  await page.waitForURL(/\/app\//);
+  await page.waitForURL(appUrlAtOrigin(test.info().project.use.baseURL!));
 }
 
 function captura(page: Page, nome: string) {

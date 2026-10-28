@@ -33,6 +33,7 @@
  * conversa/mensagens via helper) — nomes com timestamp único, não acumula
  * nem colide entre runs.
  */
+import { appUrlAtOrigin } from "./utils/app-url";
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -121,7 +122,7 @@ async function loginWithTotp(page: Page, email: string, secretTotp: string): Pro
     await firstDigit.click();
     await page.keyboard.type(code, { delay: 40 });
     try {
-      await page.waitForURL(/\/app\//, { timeout: 8_000 });
+      await page.waitForURL(appUrlAtOrigin(test.info().project.use.baseURL!), { timeout: 8_000 });
       return;
     } catch {
       await page.waitForTimeout(msUntilNextTotpWindow() + 200);

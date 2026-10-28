@@ -69,6 +69,7 @@
  * exatamente o que o navegador de quem já escolheu escuro e saiu da conta faz —
  * `THEME_INIT_SCRIPT` (`app/layout.tsx:122`) lê `pi-native-theme` no `<head>`.
  */
+import { appUrlAtOrigin } from "./utils/app-url";
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -286,7 +287,7 @@ async function loginComTotp(page: Page, email: string, secret: string): Promise<
     await page.keyboard.type(generateTotp(secret), { delay: 40 });
 
     const desfecho = await Promise.race([
-      page.waitForURL(/\/app\//, { timeout: 60_000 }).then(
+      page.waitForURL(appUrlAtOrigin(test.info().project.use.baseURL!), { timeout: 60_000 }).then(
         () => "entrou" as const,
         () => "sem-desfecho" as const,
       ),

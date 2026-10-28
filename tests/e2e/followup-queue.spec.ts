@@ -25,6 +25,7 @@
  * saída) antes de qualquer interação seguinte — serializa cada troca de
  * filtro em vez de confiar que o clique do item já fechou tudo a tempo.
  */
+import { appUrlAtOrigin } from "./utils/app-url";
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -62,7 +63,7 @@ async function login(page: Page, email: string): Promise<void> {
   await page.locator("#email").fill(email);
   await page.locator("#password").fill(creds.password);
   await page.getByRole("button", { name: /entrar/i }).click();
-  await page.waitForURL(/\/app\//);
+  await page.waitForURL(appUrlAtOrigin(test.info().project.use.baseURL!));
 }
 
 /** Troca de sessão dentro do MESMO teste: limpa cookies antes de logar como outro user. */

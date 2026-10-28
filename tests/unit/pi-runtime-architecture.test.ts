@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import ts from "typescript";
 
 const ROOT = process.cwd();
 function sourceFilesIn(directory: string): string[] {
@@ -8,23 +9,65 @@ function sourceFilesIn(directory: string): string[] {
     if (entry.name === "node_modules" || entry.name === ".next" || entry.name === ".git") return [];
     const path = join(directory, entry.name);
     if (entry.isDirectory()) return sourceFilesIn(path);
-    return /\.tsx?$/.test(entry.name) ? [path.slice(ROOT.length + 1)] : [];
+    return /\.tsx?$/.test(entry.name) ? [path.slice(ROOT.length + 1).replaceAll("\\", "/")] : [];
   });
 }
 
 const sourceFiles = sourceFilesIn(ROOT);
+
+function mentionsPiSdkOutsidePackaging(source: string, file: string): boolean {
+  if (file !== "next.config.ts") return /@earendil-works\/pi-(?:agent-core|ai)/.test(source);
+  const ast = ts.createSourceFile("source.ts", source, ts.ScriptTarget.Latest, true);
+  const ranges: Array<[number, number]> = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "nextConfig" &&
+      node.initializer && ts.isObjectLiteralExpression(node.initializer)) {
+      for (const property of node.initializer.properties) {
+        if (ts.isPropertyAssignment(property) && ts.isIdentifier(property.name) &&
+          property.name.text === "serverExternalPackages" && ts.isArrayLiteralExpression(property.initializer) &&
+          property.initializer.elements.every(ts.isStringLiteral)) {
+          ranges.push([property.initializer.getStart(ast), property.initializer.end]);
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(ast);
+  // Only this static packaging array is metadata. All other mentions retain
+  // the original broad guard, including a variable later passed to import().
+  for (const [start, end] of ranges.reverse()) source = source.slice(0, start) + source.slice(end);
+  return /@earendil-works\/pi-(?:agent-core|ai)/.test(source);
+}
 
 describe("Pi runtime architecture boundary", () => {
   it("keeps direct Pi SDK imports inside the Pi adapter directory", () => {
     const offenders = sourceFiles.filter((relativePath) => {
       const source = readFileSync(`${ROOT}/${relativePath}`, "utf8");
       return (
-        /@earendil-works\/pi-(?:agent-core|ai)/.test(source) &&
+        mentionsPiSdkOutsidePackaging(source, relativePath) &&
         !relativePath.startsWith("lib/agent-runtime/pi/") &&
         !relativePath.startsWith("tests/agent-runtime/fixtures/")
       );
     });
     expect(offenders).toEqual([]);
+  });
+
+  it("exempts only the literal serverExternalPackages array in next.config.ts", () => {
+    const sdk = ["@earendil-works", "pi-ai"].join("/");
+    const config = `const nextConfig = { serverExternalPackages: ["${sdk}"] };`;
+    expect(mentionsPiSdkOutsidePackaging(config, "next.config.ts")).toBe(false);
+    expect(mentionsPiSdkOutsidePackaging(config, "lib/domain.ts")).toBe(true);
+    for (const source of [
+      `import { Type } from "${sdk}";`,
+      `export { Type } from "${sdk}";`,
+      `const sdk = import("${sdk}/providers/anthropic");`,
+      `const sdk = require("${sdk}");`,
+      `type Sdk = typeof import("${sdk}");`,
+      `const pkg = "${sdk}"; import(pkg);`,
+      `const otherConfig = { serverExternalPackages: ["${sdk}"] };`,
+      `const nextConfig = { serverExternalPackages: ["${sdk}", ...others] };`,
+      `const nextConfig = { env: { package: "${sdk}" } };`,
+    ]) expect(mentionsPiSdkOutsidePackaging(config + source, "next.config.ts")).toBe(true);
   });
 
   it("keeps the CRM runtime contract provider-neutral", () => {

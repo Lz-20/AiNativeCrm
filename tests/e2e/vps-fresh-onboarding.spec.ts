@@ -12,6 +12,7 @@
  * Casos: J1.1–J1.13 do docs/testing/user-journey-map.md. Tudo pelo frontend;
  * banco só para PROVAR estado (nunca para atalhar a jornada).
  */
+import { appUrlAtOrigin } from "./utils/app-url";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -562,7 +563,7 @@ test.describe("J1 — onboarding do dono numa instalação fresca", () => {
     if (msUntilNextTotpWindow() < 4_000) await page.waitForTimeout(msUntilNextTotpWindow() + 300);
     await page.locator('input[aria-label="Dígito 1"]').click();
     await page.keyboard.type(generateTotp(state.totp_secret), { delay: 40 });
-    await page.waitForURL(/\/app\//, { timeout: 30_000 });
+    await page.waitForURL(appUrlAtOrigin(test.info().project.use.baseURL!), { timeout: 30_000 });
 
     await page.goto("/onboarding");
     await page.waitForURL(/\/app\/inbox/, { timeout: 15_000 });

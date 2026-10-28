@@ -25,6 +25,7 @@
  *   pnpm e2e:env && pnpm e2e:build
  *   E2E_PORT=3001 pnpm exec playwright test tests/e2e/j20-elegibilidade-respondi.spec.ts
  */
+import { appUrlAtOrigin } from "./utils/app-url";
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -80,7 +81,7 @@ async function login(page: Page, email: string): Promise<void> {
   await page.locator("#email").fill(email);
   await page.locator("#password").fill(creds.password);
   await page.getByRole("button", { name: /entrar/i }).click();
-  await page.waitForURL(/\/app\//);
+  await page.waitForURL(appUrlAtOrigin(test.info().project.use.baseURL!));
 }
 
 /** Payload do Respondi com telefone + respondent_id únicos por execução. */

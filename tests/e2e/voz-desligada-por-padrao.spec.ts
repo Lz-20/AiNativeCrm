@@ -40,6 +40,7 @@
  *   pnpm e2e:env && pnpm e2e:build
  *   E2E_PORT=3031 pnpm exec playwright test tests/e2e/voz-desligada-por-padrao.spec.ts
  */
+import { appUrlAtOrigin } from "./utils/app-url";
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -97,7 +98,7 @@ async function entrarComoAdmin(page: Page): Promise<void> {
     await page.locator('input[aria-label="Dígito 1"]').click();
     await page.keyboard.type(generateTotp(segredo as string), { delay: 40 });
     try {
-      await page.waitForURL(/\/app\//, { timeout: 8_000 });
+      await page.waitForURL(appUrlAtOrigin(test.info().project.use.baseURL!), { timeout: 8_000 });
       return;
     } catch {
       await page.waitForTimeout(msUntilNextTotpWindow() + 200);

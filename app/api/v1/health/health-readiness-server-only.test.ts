@@ -21,8 +21,6 @@ function mockEnv(key = SECRET_KEY) {
       SUPABASE_SERVICE_ROLE_KEY: key,
       UPSTASH_REDIS_REST_URL: "",
       UPSTASH_REDIS_REST_TOKEN: "",
-      WAHA_API_BASE_URL: "",
-      WAHA_API_KEY: "",
       INTERNAL_SECRET,
       INTERNAL_CRON_SECRET: "",
     },

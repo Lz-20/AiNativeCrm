@@ -7,6 +7,7 @@
  *
  * Pré-requisito: seed de credenciais + seed de kanban (rodados aqui se faltarem).
  */
+import { appUrlAtOrigin } from "./utils/app-url";
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -49,7 +50,7 @@ async function login(page: Page, email: string): Promise<void> {
   await page.locator("#email").fill(email);
   await page.locator("#password").fill(creds.password);
   await page.getByRole("button", { name: /entrar/i }).click();
-  await page.waitForURL(/\/app\//);
+  await page.waitForURL(appUrlAtOrigin(test.info().project.use.baseURL!));
 }
 
 test("filtro por responsável reflete na URL e esconde leads com dono", async ({ page }) => {

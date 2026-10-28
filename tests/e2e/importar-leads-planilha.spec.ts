@@ -20,6 +20,7 @@
  *   pnpm e2e:env && pnpm e2e:build
  *   pnpm exec playwright test tests/e2e/importar-leads-planilha.spec.ts
  */
+import { appUrlAtOrigin } from "./utils/app-url";
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -77,7 +78,7 @@ async function login(page: Page, email: string): Promise<void> {
   await page.locator("#email").fill(email);
   await page.locator("#password").fill(creds.password);
   await page.getByRole("button", { name: /entrar/i }).click();
-  await page.waitForURL(/\/app\//);
+  await page.waitForURL(appUrlAtOrigin(test.info().project.use.baseURL!));
 }
 
 test("importa uma planilha sem escolher etapa (não há esse seletor) e o negócio nasce na primeira etapa do funil", async ({

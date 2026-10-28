@@ -19,6 +19,7 @@
  * caminhos já tem spec própria. O que esta spec dirige pela tela é exatamente o
  * que a frente de gatilhos entregou: o controle de gatilho e o efeito dele.
  */
+import { appUrlAtOrigin } from "./utils/app-url";
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -101,7 +102,7 @@ async function loginComTotp(page: Page, email: string, secret: string): Promise<
     await page.locator('input[aria-label="Dígito 1"]').click();
     await page.keyboard.type(generateTotp(secret), { delay: 40 });
     try {
-      await page.waitForURL(/\/app\//, { timeout: 20_000 });
+      await page.waitForURL(appUrlAtOrigin(test.info().project.use.baseURL!), { timeout: 20_000 });
       return;
     } catch {
       await page.waitForTimeout(msUntilNextTotpWindow() + 200);

@@ -40,6 +40,7 @@
  *  - Que o e-mail chega. A chave gravada aqui é de teste; provar entrega exigiria
  *    credencial real de provedor, que não vive em repositório público.
  */
+import { appUrlAtOrigin } from "./utils/app-url";
 import * as os from "node:os";
 import * as path from "node:path";
 
@@ -90,7 +91,7 @@ test.describe("Painel de configuração da instalação", () => {
       // Com a sessão reaproveitada a página nasce em branco: sem esta entrada, o
       // caso procurava o menu numa página vazia (run 35454062082).
       await page.goto("/app");
-      await page.waitForURL(/\/app\//);
+      await page.waitForURL(appUrlAtOrigin(test.info().project.use.baseURL!));
       await page.getByRole("button", { name: /menu do usuário/i }).click();
 
       const porta = page.getByTestId("porta-modo-administrador");

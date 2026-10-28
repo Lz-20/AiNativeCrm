@@ -32,6 +32,7 @@
  *   nem autenticaria — o arquivo INTEIRO pula em vez de falhar por motivo
  *   errado (ausência de ambiente ≠ defeito).
  */
+import { appUrlAtOrigin } from "./utils/app-url";
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -83,7 +84,7 @@ async function login(page: Page, email: string): Promise<void> {
   await page.locator("#email").fill(email);
   await page.locator("#password").fill(creds.password);
   await page.getByRole("button", { name: /entrar/i }).click();
-  await page.waitForURL(/\/app\//);
+  await page.waitForURL(appUrlAtOrigin(test.info().project.use.baseURL!));
 }
 
 async function loginWithTotp(page: Page, email: string, secret: string): Promise<void> {
@@ -103,7 +104,7 @@ async function loginWithTotp(page: Page, email: string, secret: string): Promise
     await firstDigit.click();
     await page.keyboard.type(code, { delay: 40 });
     try {
-      await page.waitForURL(/\/app\//, { timeout: 8_000 });
+      await page.waitForURL(appUrlAtOrigin(test.info().project.use.baseURL!), { timeout: 8_000 });
       return;
     } catch {
       // código rejeitado — espera a próxima janela e tenta de novo

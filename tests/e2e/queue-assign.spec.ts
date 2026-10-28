@@ -9,6 +9,7 @@
  * Pré-requisito: scripts/seed-e2e-credentials.ts + scripts/seed-e2e-queue.ts
  * (o beforeAll re-roda o queue seed para restaurar o estado de fila).
  */
+import { appUrlAtOrigin } from "./utils/app-url";
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -49,7 +50,7 @@ async function login(page: Page, email: string, password: string): Promise<void>
   await page.locator("#email").fill(email);
   await page.locator("#password").fill(password);
   await page.getByRole("button", { name: /entrar/i }).click();
-  await page.waitForURL(/\/app\//, { timeout: 60_000 });
+  await page.waitForURL(appUrlAtOrigin(test.info().project.use.baseURL!), { timeout: 60_000 });
 }
 
 test.describe("G5-03 — fila com posição + atribuição", () => {

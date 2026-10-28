@@ -64,6 +64,7 @@
  * A peça que falta é do produto, não do teste: um REFETCH DE SEGURANÇA. Ele é ao
  * mesmo tempo a base da tela, a cura da perda e o detector da falha.
  */
+import { appUrlAtOrigin } from "./utils/app-url";
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -160,7 +161,7 @@ test.describe("degradação silenciosa do tempo real", () => {
     await page.getByLabel(/e-?mail/i).fill(creds.users.manager!.email);
     await page.getByLabel(/senha/i).fill(creds.password);
     await page.getByRole("button", { name: /entrar|acessar/i }).click();
-    await page.waitForURL(/\/app\//, { timeout: 30_000 });
+    await page.waitForURL(appUrlAtOrigin(test.info().project.use.baseURL!), { timeout: 30_000 });
 
     const { data: pipes } = await admin
       .from("crm_pipelines")

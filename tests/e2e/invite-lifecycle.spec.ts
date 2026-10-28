@@ -3,7 +3,7 @@
  *
  * Cobre o que a pergunta do dono pediu — convidar → aceitar → entrar → ver só o
  * permitido → agir dentro da permissão — e stressa os cantos:
- *   1. Ciclo feliz: admin convida → convidado loga e aceita → vira membership agent → cai no inbox
+ *   1. Ciclo feliz: admin convida → convidado loga e aceita → vira membership agent → chega ao painel /app
  *   2. Escopo pós-aceite: o agent vê inbox/kanban, é bloqueado (403) em billing/api-tokens
  *   3. Permissão pós-aceite: o agent NÃO consegue convidar (invite é admin-only → 403)
  *   4. Reuso do token: aceitar o MESMO token 2x é idempotente (sem membership duplicada)
@@ -17,6 +17,7 @@
  * Contra o Supabase do env (local recomendado — precisa das migrations de RLS
  * 0035/0036/0042/0044 pro escopo do agent ser real).
  */
+import { appUrlAtOrigin } from "./utils/app-url";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
@@ -92,7 +93,7 @@ async function login(page: Page, email: string): Promise<void> {
   await page.locator("#email").fill(email);
   await page.locator("#password").fill(base.password);
   await page.getByRole("button", { name: /entrar/i }).click();
-  await page.waitForURL(/\/app\//);
+  await page.waitForURL(appUrlAtOrigin(test.info().project.use.baseURL!));
 }
 
 async function loginAdminTotp(page: Page): Promise<void> {
@@ -109,10 +110,10 @@ async function loginAdminTotp(page: Page): Promise<void> {
     await page.keyboard.type(generateTotp(secret), { delay: 40 });
     try {
       // 1ª compilação de /app no dev pode ser lenta → timeout generoso
-      await page.waitForURL(/\/app\//, { timeout: 30_000 });
+      await page.waitForURL(appUrlAtOrigin(test.info().project.use.baseURL!), { timeout: 30_000 });
       return;
     } catch {
-      if (/\/app\//.test(page.url())) return; // navegou; só passou do timeout
+      if (appUrlAtOrigin(test.info().project.use.baseURL!)(new URL(page.url()))) return; // navegou; só passou do timeout
       if (!/\/login\/mfa/.test(page.url())) throw new Error(`MFA em estado inesperado: ${page.url()}`);
       await page.waitForTimeout(msUntilNextTotpWindow() + 300); // código recusado → nova janela
     }
@@ -151,7 +152,7 @@ test.describe("ciclo de vida do convite (ponta a ponta + adversarial)", () => {
     await page.locator("#email").fill(base.users.agent!.email);
     await page.locator("#password").fill(base.password);
     await page.getByRole("button", { name: /entrar/i }).click();
-    await page.waitForURL(/\/app\//, { timeout: 150_000 }).catch(() => {});
+    await page.waitForURL(appUrlAtOrigin(test.info().project.use.baseURL!), { timeout: 150_000 }).catch(() => {});
     for (const r of ["/app/inbox", "/app/kanban", "/app/contacts", "/app/settings/billing", "/app/settings/api-tokens"]) {
       await page.goto(r).catch(() => {});
     }
@@ -174,7 +175,7 @@ test.describe("ciclo de vida do convite (ponta a ponta + adversarial)", () => {
     await mctx.close();
   });
 
-  test("1. ciclo feliz: convidar → aceitar → vira agent → cai no inbox", async ({ browser }) => {
+  test("1. ciclo feliz: convidar → aceitar → vira agent → chega ao painel /app", async ({ browser }) => {
     // admin convida
     const adminCtx = await browser.newContext();
     const adminPage = await adminCtx.newPage();
@@ -205,7 +206,10 @@ test.describe("ciclo de vida do convite (ponta a ponta + adversarial)", () => {
     await page.goto(tokenPath(acceptUrl));
     await expect(page.getByRole("heading", { name: /Aceitar convite/i })).toBeVisible();
     await page.getByRole("button", { name: /Aceitar convite/i }).click();
-    await page.waitForURL(/\/app\/inbox/);
+    // acceptInviteAction lands at the dashboard; inbox access is checked separately.
+    await page.waitForURL((url) =>
+      url.origin === new URL(test.info().project.use.baseURL!).origin && url.pathname === "/app",
+    );
 
     // depois do aceite: membership agent criada
     expect(await membershipCount()).toBe(1);
@@ -255,11 +259,17 @@ test.describe("ciclo de vida do convite (ponta a ponta + adversarial)", () => {
     // 1º aceite (reaplica)
     await page.goto(`/team/accept-invite/${token}`);
     await page.getByRole("button", { name: /Aceitar convite/i }).click();
-    await page.waitForURL(/\/app\/inbox/);
+    // acceptInviteAction lands at the dashboard; inbox access is checked separately.
+    await page.waitForURL((url) =>
+      url.origin === new URL(test.info().project.use.baseURL!).origin && url.pathname === "/app",
+    );
     // 2º aceite do MESMO token
     await page.goto(`/team/accept-invite/${token}`);
     await page.getByRole("button", { name: /Aceitar convite/i }).click();
-    await page.waitForURL(/\/app\/inbox/);
+    // acceptInviteAction lands at the dashboard; inbox access is checked separately.
+    await page.waitForURL((url) =>
+      url.origin === new URL(test.info().project.use.baseURL!).origin && url.pathname === "/app",
+    );
     // sem duplicar membership
     expect(await membershipCount()).toBe(1);
     await ctx.close();

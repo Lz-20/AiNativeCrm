@@ -8,6 +8,7 @@
  *
  * Pré-requisito: `.e2e-creds.json` (gerado por scripts/seed-e2e-credentials.ts).
  */
+import { appUrlAtOrigin } from "./utils/app-url";
 import { mkdirSync } from "node:fs";
 import * as path from "node:path";
 
@@ -42,7 +43,7 @@ async function login(page: Page, email: string): Promise<void> {
   await page.locator("#email").fill(email);
   await page.locator("#password").fill(creds.password);
   await page.getByRole("button", { name: /entrar/i }).click();
-  await page.waitForURL(/\/app\//);
+  await page.waitForURL(appUrlAtOrigin(test.info().project.use.baseURL!));
 }
 
 async function loginAdmin(page: Page): Promise<void> {

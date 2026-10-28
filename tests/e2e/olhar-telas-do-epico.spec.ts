@@ -15,6 +15,7 @@
  *
  * Uma tela sadia provada TAMBÉM é resultado: a captura fica versionada.
  */
+import { appUrlAtOrigin } from "./utils/app-url";
 import { test, expect } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
@@ -87,7 +88,7 @@ test.describe("as telas do épico abrem para uma pessoa", () => {
     await page.waitForTimeout(msUntilNextTotpWindow() + 200);
     await page.locator('input[aria-label="Dígito 1"]').click();
     await page.keyboard.type(generateTotp(creds.admin_totp!.secret), { delay: 60 });
-    await page.waitForURL(/\/app\//, { timeout: 30_000 });
+    await page.waitForURL(appUrlAtOrigin(test.info().project.use.baseURL!), { timeout: 30_000 });
 
     const quebradas: string[] = [];
 

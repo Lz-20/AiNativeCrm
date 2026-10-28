@@ -43,6 +43,7 @@
  * para 2 transforma este arquivo em fonte de vermelho nas vizinhas, com o
  * sintoma longe da causa.
  */
+import { appUrlAtOrigin } from "./utils/app-url";
 import { createServer, type Server } from "node:http";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -162,7 +163,7 @@ async function loginComTotp(page: Page, email: string, secret: string): Promise<
     await primeiroDigito.click();
     await page.keyboard.type(generateTotp(secret), { delay: 40 });
     try {
-      await page.waitForURL(/\/app\//, { timeout: 30_000 });
+      await page.waitForURL(appUrlAtOrigin(test.info().project.use.baseURL!), { timeout: 30_000 });
       return;
     } catch {
       await page.waitForTimeout(msUntilNextTotpWindow() + 200);

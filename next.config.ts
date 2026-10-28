@@ -15,6 +15,10 @@ const nextConfig: NextConfig = {
   // desligado porque Next 16.3 + adapter + standalone quebra o onBuildComplete
   // com ENOENT next-server.js.nft.json (#96646).
   output: process.env.VERCEL ? undefined : "standalone",
+  // Pi resolve módulos nativos de Node por import() calculado. Dentro de um
+  // chunk do Turbopack isso vira MODULE_NOT_FOUND (fs/os/path); preservar o
+  // pacote externo mantém esses imports no Node, inclusive no standalone.
+  serverExternalPackages: ["@earendil-works/pi-ai"],
   /**
    * O `standalone` copia SÓ o que o file tracing detecta — e ele não detecta
    * tudo de `@swc/helpers`.

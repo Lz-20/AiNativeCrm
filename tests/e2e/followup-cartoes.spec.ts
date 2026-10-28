@@ -22,6 +22,7 @@
  * dirigem o mesmo canvas, e uma cópia local é mais barata que um módulo
  * compartilhado que ninguém mantém.
  */
+import { appUrlAtOrigin } from "./utils/app-url";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -55,7 +56,7 @@ async function login(page: Page, email: string): Promise<void> {
   await page.locator("#email").fill(email);
   await page.locator("#password").fill(creds.password);
   await page.getByRole("button", { name: /entrar/i }).click();
-  await page.waitForURL(/\/app\//, { timeout: PRAZO });
+  await page.waitForURL(appUrlAtOrigin(test.info().project.use.baseURL!), { timeout: PRAZO });
 }
 
 async function novoFluxo(page: Page, nome: string): Promise<string> {

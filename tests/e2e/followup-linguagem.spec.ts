@@ -15,6 +15,7 @@
  * (ele rotaciona o TOTP do admin e derruba o run alheio), copiar as credenciais
  * do maestro, porta 3105, e 60s de prazo porque a máquina roda saturada.
  */
+import { appUrlAtOrigin } from "./utils/app-url";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -47,7 +48,7 @@ async function login(page: Page, email: string, senha: string): Promise<void> {
   await page.locator("#email").fill(email);
   await page.locator("#password").fill(senha);
   await page.getByRole("button", { name: /entrar/i }).click();
-  await page.waitForURL(/\/app\//, { timeout: PRAZO_SOB_CARGA });
+  await page.waitForURL(appUrlAtOrigin(test.info().project.use.baseURL!), { timeout: PRAZO_SOB_CARGA });
 }
 
 /**

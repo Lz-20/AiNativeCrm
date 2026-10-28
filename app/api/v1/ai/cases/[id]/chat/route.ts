@@ -494,7 +494,7 @@ export async function POST(req: NextRequest, ctx: Ctx): Promise<Response> {
         pergunta,
         persona,
       },
-      { log: deps.log },
+      { log: deps.log, runtime: deps.runtime },
     );
   } catch (erro) {
     motivo = motivoDaConversaDoCaso(erro);

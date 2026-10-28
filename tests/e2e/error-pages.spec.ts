@@ -1,11 +1,16 @@
 import { test, expect } from "@playwright/test";
 
 test.describe("error pages", () => {
-  test("/404 renders PT-BR copy", async ({ page }) => {
+  // Anonymous /404 and /500 use the installation default; /503 uses that
+  // default without a database lookup. r4 defaults to Simplified Chinese.
+  // /403 intentionally uses the visitor's language (pt-BR in this suite).
+  test("/404 renders the installation default and working navigation links", async ({ page }) => {
     const res = await page.goto("/404");
     // Next renders the not-found.tsx component; status may be 404 or 200 depending on routing.
     expect([200, 404]).toContain(res?.status() ?? 0);
-    await expect(page.getByText(/não encontrada/i)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "404 — 页面未找到", exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "返回", exact: true })).toHaveAttribute("href", "/");
+    await expect(page.getByRole("link", { name: "返回会话收件箱", exact: true })).toHaveAttribute("href", "/app/inbox");
   });
 
   test("/403 renders sem permissão", async ({ page }) => {
@@ -13,14 +18,16 @@ test.describe("error pages", () => {
     await expect(page.getByText(/sem permissão/i)).toBeVisible();
   });
 
-  test("/500 renders erro interno", async ({ page }) => {
+  test("/500 renders the installation default and a return link", async ({ page }) => {
     await page.goto("/500");
-    await expect(page.getByText(/erro interno/i)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "500 — 内部错误", exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "返回", exact: true })).toHaveAttribute("href", "/");
   });
 
-  test("/503 renders manutenção", async ({ page }) => {
+  test("/503 renders the installation default and a return link", async ({ page }) => {
     await page.goto("/503");
-    await expect(page.getByText(/manutenção/i)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "503 — 维护中", exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "返回", exact: true })).toHaveAttribute("href", "/");
   });
 });
 

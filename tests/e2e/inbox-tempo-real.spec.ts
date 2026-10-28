@@ -76,6 +76,7 @@
  * tests/e2e/inbox-tempo-real.spec.ts`. O que falta para ele voltar ao CI é uma
  * rodada no runner com a sabotagem acima VERMELHA.
  */
+import { appUrlAtOrigin } from "./utils/app-url";
 import { execFileSync, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -129,7 +130,7 @@ async function login(page: Page, email: string, senha: string): Promise<void> {
   await page.locator("#email").fill(email);
   await page.locator("#password").fill(senha);
   await page.getByRole("button", { name: /entrar/i }).click();
-  await page.waitForURL(/\/app\//);
+  await page.waitForURL(appUrlAtOrigin(test.info().project.use.baseURL!));
 }
 
 /**

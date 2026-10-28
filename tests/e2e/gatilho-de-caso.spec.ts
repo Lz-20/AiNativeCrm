@@ -24,6 +24,7 @@
  * tabela, e o INSERT passa pelo MESMO trigger que o turno do agente dispararia:
  * o caminho ATÉ o gatilho é encurtado, o gatilho não.
  */
+import { appUrlAtOrigin } from "./utils/app-url";
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -105,7 +106,7 @@ async function loginComTotp(page: Page, email: string, secret: string): Promise<
     await page.locator('input[aria-label="Dígito 1"]').click();
     await page.keyboard.type(generateTotp(secret), { delay: 40 });
     try {
-      await page.waitForURL(/\/app\//, { timeout: 20_000 });
+      await page.waitForURL(appUrlAtOrigin(test.info().project.use.baseURL!), { timeout: 20_000 });
       return;
     } catch {
       await page.waitForTimeout(msUntilNextTotpWindow() + 200);

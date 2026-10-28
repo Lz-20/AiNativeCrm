@@ -8,6 +8,7 @@
  * NASCE — que é o que decide se a instalação de quem já tinha o agente recebe a
  * novidade ou não.
  */
+import { appUrlAtOrigin } from "./utils/app-url";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -46,7 +47,7 @@ async function loginComTotp(
     await digito1.click({ timeout: 15_000 });
     await page.keyboard.type(generateTotp(segredo), { delay: 40 });
     const desfecho = await Promise.race([
-      page.waitForURL(/\/app\//, { timeout: 60_000 }).then(() => "entrou" as const, () => "nada" as const),
+      page.waitForURL(appUrlAtOrigin(test.info().project.use.baseURL!), { timeout: 60_000 }).then(() => "entrou" as const, () => "nada" as const),
       recusa.waitFor({ state: "visible", timeout: 60_000 }).then(() => "recusado" as const, () => "nada" as const),
     ]);
     if (desfecho === "entrou") return;

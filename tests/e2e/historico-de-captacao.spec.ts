@@ -21,6 +21,7 @@
  * Self-contido: sufixo de timestamp em todo nome (o banco é compartilhado com
  * a outra parte do job e com sessões manuais) e limpeza no `finally`.
  */
+import { appUrlAtOrigin } from "./utils/app-url";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
@@ -58,7 +59,7 @@ async function login(page: Page, email: string): Promise<void> {
   await page.locator("#email").fill(email);
   await page.locator("#password").fill(creds.password);
   await page.getByRole("button", { name: /entrar/i }).click();
-  await page.waitForURL(/\/app\//);
+  await page.waitForURL(appUrlAtOrigin(test.info().project.use.baseURL!));
 }
 
 test.describe("histórico de leads captados", () => {
