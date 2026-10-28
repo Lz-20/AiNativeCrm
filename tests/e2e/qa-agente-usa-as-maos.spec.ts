@@ -1,5 +1,6 @@
 /**
- * QA EXPLORATÓRIO — não é gate, é olhar a coisa funcionando com olho crítico.
+ * QA de capacidades: o CI usa o provider controlado; a execução manual pode
+ * observar um provider real. O relatório sempre identifica o modo medido.
  *
  * ⚠️ POR QUE ESTE ARQUIVO EXISTE. O E2E da W4
  * (`agente-organiza-operacao.spec.ts`) prova que as capacidades FUNCIONAM: ele
@@ -10,31 +11,52 @@
  *
  * São perguntas diferentes, e a segunda só se responde usando o produto como
  * usuário: com um agente publicado de verdade e um LLM de verdade decidindo.
- * Este spec faz isso e **guarda o que viu**.
+ * O modo manual com provider externo guarda essa observação. O modo controlado
+ * registra apenas o funcionamento da execução; não mede escolha de modelo real.
  *
  * Roda pelo MESMO endpoint que o botão "Executar teste" da tela chama
  * (`/versions/[vid]/test`) — é dry-run, nada é enviado ao cliente, e o run fica
  * registrado em `ai_agent_runs`.
  *
- * ⚠️ CONSOME CRÉDITO DE VERDADE. É o preço de saber se funciona de fato.
- * Não é gate de CI: é instrumento de observação, rodado sob demanda.
+ * Com provider real, a execução manual consome crédito. O modo controlado do
+ * CI verifica a execução, sem afirmar qualidade de seleção de um modelo real.
  */
 import { appUrlAtOrigin } from "./utils/app-url";
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import pg from "pg";
 
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
 
 import { afirmarAdminDeTenantPuro } from "./utils/precondicao";
 import { generateTotp, msUntilNextTotpWindow } from "./utils/totp";
 import { catalogoEntregueAoOperador } from "@/lib/agent-engine/agent/entrega-de-capacidade";
+import { seedPlatformPlaybook } from "@/lib/agent-engine/agent/playbook-seed";
+import { credenciaisSupabaseDeTeste } from "../../scripts/lib/env-de-teste";
+import {
+  afirmarDestinoDoPreviewControlado,
+  CONFIG_PREVIEW_CONTROLADO,
+  prepararPreviewControlado,
+} from "./helpers/qa-preview-controlado";
 
 const APP_URL = `http://localhost:${process.env.E2E_PORT ?? "3001"}`;
 const CREDS_PATH = path.join(process.cwd(), ".e2e-creds.json");
-const SAIDA = path.join(process.cwd(), "evidence", "ia-360-w4");
+const EXECUTION_MODE = process.env.INTERNAL_AGENT_RUN_STUB === "true" ? "controlled" : "provider";
+const REQUESTED_MODEL = EXECUTION_MODE === "controlled"
+  ? CONFIG_PREVIEW_CONTROLADO.model : process.env.QA_LLM_MODEL ?? "gpt-5.6-terra";
+const localCredentials = EXECUTION_MODE === "controlled" ? credenciaisSupabaseDeTeste() : null;
+// Antes de loadCreds(), que pode disparar o seed base. Confere os destinos
+// efetivos do processo, inclusive o DSN, não apenas o arquivo .env.e2e.
+if (localCredentials) {
+  afirmarDestinoDoPreviewControlado({ ...localCredentials, appUrl: APP_URL }, process.env.INTERNAL_AGENT_RUN_STUB);
+}
+// Cada corrida tem seu diretório; uma resposta controlada nunca substitui a
+// medição histórica de um provider real usada como fixture pelos testes unitários.
+const SAIDA = path.join(process.cwd(), "evidence", "ia-360-w4", "runs", `${EXECUTION_MODE}-${Date.now()}`);
 
 interface Creds {
+  org_id: string;
   password: string;
   users: Record<string, { email: string }>;
   admin_totp?: { factor_id: string; secret: string };
@@ -49,6 +71,8 @@ function loadCreds(): Creds {
 
 const creds = loadCreds();
 const ts = Date.now();
+let fixturePool: pg.Pool | undefined;
+let controlledFixture: Awaited<ReturnType<typeof prepararPreviewControlado>> | undefined;
 
 // ── Precondição de identidade ────────────────────────────────────────────────
 // Esta spec dirige o agente como um ADMIN DE TENANT, o usuário compartilhado que
@@ -61,6 +85,25 @@ const ts = Date.now();
 // `utils/precondicao.ts` para a medição completa.
 test.beforeAll(async () => {
   await afirmarAdminDeTenantPuro(creds.users.admin!.email);
+  if (localCredentials) {
+    fixturePool = new pg.Pool({ connectionString: localCredentials.dbUrl });
+    // Sem worker no E2E, o platform pointer não existe num banco fresco.
+    // O bootstrap canônico mantém qualquer ponteiro já publicado intacto.
+    await seedPlatformPlaybook(fixturePool);
+    controlledFixture = await prepararPreviewControlado(fixturePool, {
+      destination: { ...localCredentials, appUrl: APP_URL },
+      controlled: process.env.INTERNAL_AGENT_RUN_STUB,
+      orgId: creds.org_id,
+      adminEmail: creds.users.admin!.email,
+    });
+  }
+});
+test.afterAll(async () => {
+  try {
+    await controlledFixture?.cleanup();
+  } finally {
+    await fixturePool?.end();
+  }
 });
 
 /** As capacidades da W4 que cabem no teto por agente, mais o essencial de contexto. */
@@ -333,6 +376,13 @@ async function login(page: Page): Promise<void> {
  * pela tela. Chave em spec versionado é vazamento permanente: o git não esquece.
  */
 async function versaoComAsCapacidades(req: APIRequestContext, agenteId: string): Promise<string> {
+  if (EXECUTION_MODE === "controlled") {
+    if (!controlledFixture || agenteId !== controlledFixture.agentId) {
+      throw new Error("Fixture do preview controlado ausente.");
+    }
+    return criarVersao(req, agenteId, controlledFixture.credentialId,
+      controlledFixture.channelId, controlledFixture.provider, controlledFixture.model);
+  }
   const chave = process.env.QA_LLM_API_KEY;
   const provider = (process.env.QA_LLM_PROVIDER ?? "openai") as "openai" | "anthropic";
   const modelo = process.env.QA_LLM_MODEL ?? "gpt-5.6-terra";
@@ -412,16 +462,24 @@ async function criarVersao(
 }
 
 test.describe("QA — o agente usa as mãos que a W4 entregou?", () => {
-  test("um modelo de verdade escolhendo as capacidades novas", async ({ page }) => {
+  test("o runtime configurado executa o preview e identifica o modo medido", async ({ page }) => {
     test.setTimeout(600_000);
     fs.mkdirSync(SAIDA, { recursive: true });
     fs.mkdirSync(TURNOS, { recursive: true });
     await login(page);
 
     const agentesRes = await page.request.get(`${APP_URL}/api/v1/ai/agents`);
-    const agentes = (await agentesRes.json()) as { data?: Array<{ id: string; name: string }> };
-    const agenteId = agentes.data?.[0]?.id;
-    expect(agenteId, "a org de E2E precisa de um agente").toBeTruthy();
+    expect(agentesRes.ok()).toBe(true);
+    const agentes = (await agentesRes.json()) as {
+      data?: Array<{ id: string; name: string; origin: string; kind: string }>;
+    };
+    // A listagem também entrega Agents nativos somente leitura. A fixture de
+    // capacidades pertence ao usuário; o guard builtin_locked continua intacto.
+    const agenteId = agentes.data?.find((agent) =>
+      agent.origin === "user" && agent.kind === "mcp_agent" &&
+      (EXECUTION_MODE !== "controlled" || agent.id === controlledFixture?.agentId),
+    )?.id;
+    expect(agenteId, "a org de E2E precisa de um agente MCP editável do usuário").toBeTruthy();
 
     const versaoId = await versaoComAsCapacidades(page.request, agenteId!);
     console.info(`[QA] versão de teste ${versaoId} com ${CAPACIDADES.length} capacidades`);
@@ -439,6 +497,7 @@ test.describe("QA — o agente usa as mãos que a W4 entregou?", () => {
     console.info(`[QA] cenários nesta corrida: ${aRodar.map((c) => c.nome).join(", ")}`);
 
     const relatorio: string[] = [];
+    let falhas = 0;
     /**
      * Quantos cenarios PRODUZIRAM alguma coisa. O relatorio em markdown la
      * embaixo tambem e artefato versionado de uma medicao real — e, ao
@@ -460,6 +519,7 @@ test.describe("QA — o agente usa as mãos que a W4 entregou?", () => {
         `${PROMPT_KIND}${SEM_OPERACAO ? "__sem-operacao" : ""}__${cenario.nome}.json`,
       );
       if (!res.ok()) {
+        falhas += 1;
         console.info(`[QA] ${cenario.nome}: HTTP ${res.status()} — ${bruto.slice(0, 300)}`);
         relatorio.push(`## ${cenario.nome}\nFALHOU: HTTP ${res.status()}\n${bruto.slice(0, 600)}`);
         // Turno que NÃO rodou também é gravado. Um cenário que some do diretório é
@@ -498,31 +558,29 @@ test.describe("QA — o agente usa as mãos que a W4 entregou?", () => {
       const { data } = JSON.parse(bruto) as {
         data: {
           status: string;
+          stub: boolean;
           final_text?: string | null;
-          tool_calls?: unknown;
+          proposals?: unknown;
           latency_ms?: number;
           cost_cents?: number;
         };
       };
+      expect(data.stub, "o servidor precisa confirmar o modo que o relatório declara").toBe(EXECUTION_MODE === "controlled");
 
-      const chamadas = Array.isArray(data.tool_calls)
-        ? (data.tool_calls as Array<Record<string, unknown>>)
+      const propostas = Array.isArray(data.proposals)
+        ? (data.proposals as Array<Record<string, unknown>>)
         : [];
       /**
-       * ⚠️ O array de `tool_calls` do run é uma lista de PASSOS (`serializeSteps`), e o
-       * nome da ferramenta mora um nível abaixo, em `passo.tool_calls[].tool_name`. Lido
-       * no nível do passo — como estava — TODO cenário imprimia `? → ? → ?`, inclusive os
-       * que chamaram as ferramentas certas. Um relatório que não distingue "chamou
-       * crm_list_pipelines" de "não chamou nada" não serve à pergunta que este spec faz.
+       * O preview retorna proposals { tool, arguments }: sugestões de escrita,
+       * não operações executadas. A rota não entrega o trace completo das
+       * ferramentas de leitura; este relatório não afirma ter medido essas chamadas.
        */
-      const nomes = chamadas.flatMap((passo) => {
-        const doPasso = Array.isArray(passo.tool_calls) ? (passo.tool_calls as Array<Record<string, unknown>>) : [];
-        return doPasso.map((c) => String(c.tool_name ?? c.tool ?? c.name ?? c.toolName ?? "?"));
-      });
+      const nomes = propostas.map((proposta) => proposta.tool)
+        .filter((name): name is string => typeof name === "string" && name.length > 0);
 
       console.info(`[QA] --- ${cenario.nome} ---`);
       console.info(`[QA] esperado: ${cenario.esperado}`);
-      console.info(`[QA] chamou:   ${nomes.length ? nomes.join(" → ") : "(NENHUMA ferramenta)"}`);
+      console.info(`[QA] sugeriu escritas (não executadas): ${nomes.length ? nomes.join(" → ") : "(nenhuma proposta)"}`);
       console.info(`[QA] status:   ${data.status} · ${data.latency_ms ?? "?"}ms`);
       console.info(`[QA] resposta: ${(data.final_text ?? "(vazia)").slice(0, 400)}`);
 
@@ -553,6 +611,7 @@ test.describe("QA — o agente usa as mãos que a W4 entregou?", () => {
       const mediuAlgo = (data.final_text ?? "").trim().length > 0 || nomes.length > 0;
       if (mediuAlgo) cenariosQueMediram += 1;
       if (!mediuAlgo) {
+        falhas += 1;
         console.info(
           `[QA] ${cenario.nome}: HTTP 200 mas o turno veio VAZIO (status=${data.status}). ` +
             `Gravando ao lado, em __sem-resposta.json — a medição versionada não é tocada. ` +
@@ -573,11 +632,14 @@ test.describe("QA — o agente usa as mãos que a W4 entregou?", () => {
             status: data.status,
             // CRU, sem trim: é este byte que vai ao detector.
             final_text: data.final_text ?? null,
-            ferramentas: nomes,
-            tool_calls: chamadas,
+            proposed_write_tools: nomes,
+            proposals: propostas,
+            read_tool_calls_measured: false,
             latency_ms: data.latency_ms ?? null,
             cost_cents: data.cost_cents ?? null,
-            model: process.env.QA_LLM_MODEL ?? "gpt-5.6-terra",
+            execution_mode: EXECUTION_MODE,
+            requested_model: REQUESTED_MODEL,
+            external_provider_mode_confirmed: EXECUTION_MODE === "provider",
             agent_version_id: versaoId,
             medido_em: new Date().toISOString(),
           },
@@ -591,17 +653,18 @@ test.describe("QA — o agente usa as mãos que a W4 entregou?", () => {
           `## ${cenario.nome}`,
           `**Perguntaram:** ${cenario.mensagem}`,
           `**Esperado:** ${cenario.esperado}`,
-          `**Ferramentas chamadas:** ${nomes.length ? nomes.join(" → ") : "NENHUMA"}`,
+          `**Escritas sugeridas (não executadas):** ${nomes.length ? nomes.join(" → ") : "nenhuma proposta"}`,
+          `**Chamadas de leitura:** não medidas por esta resposta de preview.`,
           `**Status:** ${data.status}`,
           "",
           "**O que o agente respondeu:**",
           "",
           (data.final_text ?? "(vazia)").trim(),
           "",
-          "**Chamadas cruas:**",
+          "**Propostas cruas:**",
           "",
           "```json",
-          JSON.stringify(chamadas, null, 2).slice(0, 2500),
+          JSON.stringify(propostas, null, 2).slice(0, 2500),
           "```",
         ].join("\n"),
       );
@@ -623,9 +686,14 @@ test.describe("QA — o agente usa as mãos que a W4 entregou?", () => {
           : "qa-turnos-do-agente__sem-resposta.md",
       ),
       `# QA — o agente usando as capacidades da W4\n\n` +
-        `Modelo real, dry-run, pelo endpoint do botão "Executar teste".\n\n` +
+        (EXECUTION_MODE === "controlled"
+          ? `Provider controlado do CI: execução pelo endpoint real, sem medir seleção de um modelo externo.\n\n`
+          : `Provider externo, dry-run, pelo endpoint do botão "Executar teste".\n\n`) +
         relatorio.join("\n\n---\n\n"),
     );
-    console.info("[QA] relatório salvo em evidence/ia-360-w4/qa-turnos-do-agente.md");
+    console.info(`[QA] relatório isolado da corrida: ${SAIDA}`);
+    expect(aRodar.length, "o filtro precisa selecionar ao menos um cenário").toBeGreaterThan(0);
+    expect(falhas, "falhas HTTP ou turnos vazios permanecem falhas da jornada").toBe(0);
+    expect(cenariosQueMediram).toBe(aRodar.length);
   });
 });

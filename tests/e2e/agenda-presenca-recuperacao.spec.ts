@@ -1073,9 +1073,23 @@ test("Radar recorta demandas pela RLS real, além do pool frio, e preserva gest�
       total_sem_proximo_passo: number;
     };
   };
+  const abrirRadar = async () => {
+    // Com 501 leads, a consulta real pode consumir quase todo o timeout da
+    // asserção visual. Espere a resposta do navegador antes de medir o DOM;
+    // o status e as verificações de RLS continuam obrigatórios.
+    const [response] = await Promise.all([
+      page.waitForResponse((result) =>
+        result.url() === new URL("/api/v1/leads/at-risk", test.info().project.use.baseURL!).href &&
+        result.request().method() === "GET",
+      ),
+      page.goto("/app/radar"),
+    ]);
+    expect(response.status()).toBe(200);
+    expect(await response.finished()).toBeNull();
+  };
   await policy("own");
   await login(page, members.agent!.email);
-  await page.goto("/app/radar");
+  await abrirRadar();
   await expect(page.getByTestId("radar-sem-proximo-passo")).toContainText("Própria fora do pool");
   const own = await read();
   expect(own.sem_proximo_passo.map((d) => d.id).sort()).toEqual(
@@ -1094,7 +1108,7 @@ test("Radar recorta demandas pela RLS real, além do pool frio, e preserva gest�
   );
   expect(unassigned.total_sem_proximo_passo).toBe(3);
   await login(page, members.manager!.email);
-  await page.goto("/app/radar");
+  await abrirRadar();
   await expect(page.getByTestId("radar-sem-proximo-passo")).toContainText("Órfã de gestão");
   expect((await read()).total_sem_proximo_passo).toBe(6);
   await login(page, members.viewer!.email);
@@ -1114,7 +1128,7 @@ test("Radar recorta demandas pela RLS real, além do pool frio, e preserva gest�
   await page.getByRole("button", { name: /Acompanhar/ }).click();
   await page.getByRole("button", { name: "Confirmar e entrar" }).click();
   await page.waitForURL("**/app/inbox");
-  await page.goto("/app/radar");
+  await abrirRadar();
   await expect(page.getByTestId("radar-sem-proximo-passo")).toContainText("Órfã de gestão");
   expect((await read()).total_sem_proximo_passo).toBe(6);
   await page.getByRole("button", { name: "Sair do acompanhamento" }).click();

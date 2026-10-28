@@ -14,10 +14,16 @@ async function insert(table: string, value: Record<string, unknown>) {
 }
 async function login(page: Page, email: string) {
   await page.goto("/login");
-  await page.getByLabel(/e-?mail/i).fill(email);
-  await page.getByLabel(/senha/i).fill(password);
-  await page.getByRole("button", { name: /entrar/i }).click();
-  await page.waitForURL(/\/app(\/|$)/, { timeout: 60_000 });
+  await page.locator("#email").fill(email);
+  await page.locator("#password").fill(password);
+  await page.locator('form button[type="submit"]').click();
+  await page.waitForURL(new URL("/app", test.info().project.use.baseURL!).href, { timeout: 60_000 });
+}
+async function abrirInboxDaHome(page: Page) {
+  await expect(page).toHaveURL(new URL("/app", test.info().project.use.baseURL!).href);
+  await page.getByRole("navigation", { name: "Navegação principal" })
+    .getByRole("link", { name: "Inbox", exact: true }).click();
+  await expect(page).toHaveURL(new URL("/app/inbox", test.info().project.use.baseURL!).href);
 }
 async function conversation(org: string, name: string) {
   const contact = await insert("contacts", { organization_id: org, name, display_name: name });
@@ -39,7 +45,9 @@ test("org única oferece criação, responsável aceita e A→B→A não mistura
   let guestContext;
   try {
     for (const email of [ownerEmail, guestEmail]) {
-      const { data, error } = await db.auth.admin.createUser({ email, password, email_confirm: true });
+      const { data, error } = await db.auth.admin.createUser({
+        email, password, email_confirm: true, user_metadata: { locale: "pt-BR" },
+      });
       if (error || !data.user) throw error ?? new Error("user missing");
       users.push(data.user.id);
     }
@@ -133,7 +141,7 @@ test("org única oferece criação, responsável aceita e A→B→A não mistura
     if (update.error) throw update.error;
     await conversation(orgB, `Cliente B ${suffix}`);
     await page.getByRole("link", { name: "Voltar ao aplicativo" }).click();
-    await page.waitForURL("**/app/inbox", { waitUntil: "load" });
+    await abrirInboxDaHome(page);
     await expect(page.locator("[data-conversation-id]").getByText(`Cliente A ${suffix}`, { exact: true })).toBeVisible();
     const cookieBeforeFailure = (await page.context().cookies()).find(cookie => cookie.name === "active_org")?.value;
     await page.route("**/app/**", async route => {
@@ -186,6 +194,7 @@ test("org única oferece criação, responsável aceita e A→B→A não mistura
     await expect(guest.getByTestId("tenant-switcher")).toHaveCount(0);
     await guest.goto(new URL(link).pathname);
     await guest.getByRole("button", { name: "Aceitar convite", exact: true }).click();
+    await abrirInboxDaHome(guest);
     await expect(guest.getByTestId("tenant-switcher")).toContainText(`Empresa B ${suffix}`);
     await expect(guest.locator("[data-conversation-id]").getByText(`Cliente B ${suffix}`, { exact: true })).toBeVisible();
     const membership = await db.from("user_organizations").select("invited_by,role").eq("organization_id", orgB).eq("user_id", users[1]).single();
