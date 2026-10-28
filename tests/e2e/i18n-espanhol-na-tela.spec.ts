@@ -44,15 +44,21 @@ import * as path from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { test, expect, type Page } from "@playwright/test";
 
-import { credenciaisSupabaseDeTeste } from "../../scripts/lib/env-de-teste";
+import { credenciaisSupabaseDeTeste, destinoEhLocal } from "../../scripts/lib/env-de-teste";
 import { DICIONARIO } from "../../lib/i18n/dicionario";
 import { lerCreds, loginComoAdmin } from "./helpers/login-admin";
+import { preservarIdiomaDoUsuario } from "./helpers/preservar-idioma";
 
+const credentials = credenciaisSupabaseDeTeste();
+if (!credentials.url || !destinoEhLocal(credentials.url) || !destinoEhLocal(credentials.dbUrl)) {
+  throw new Error("A jornada de idioma exige Supabase local nos dois canais.");
+}
 const creds = lerCreds();
 const EVIDENCIA = path.join(process.cwd(), "evidence", "i18n-es");
 mkdirSync(EVIDENCIA, { recursive: true });
 
 const PRAZO = 60_000;
+let restaurarIdioma: (() => Promise<void>) | undefined;
 
 /**
  * As telas do dia a dia, e uma de configuração.
@@ -186,9 +192,9 @@ async function porIdiomaEm(page: Page, codigo: "pt-BR" | "es"): Promise<void> {
  * tinha deixado em espanhol.
  *
  * Por isso a restauração é `afterAll` e vai DIRETO AO BANCO, não pela tela: se
- * a falha foi na tela, restaurar pela tela falharia junto. `null` (e não
- * "pt-BR") porque `null` é a ausência de preferência, que é como a conta nasce
- * do seed — devolver um valor onde não havia nenhum é deixar outro rastro.
+ * a falha foi na tela, restaurar pela tela falharia junto. A preferência é
+ * capturada ANTES da jornada e devolvida sem supor o padrão do seed; `null`
+ * só remove o campo quando ele já estava ausente.
  */
 /**
  * Um contato com atividade de ONTEM — a única forma de a data virar PALAVRA.
@@ -204,10 +210,14 @@ async function porIdiomaEm(page: Page, codigo: "pt-BR" | "es"): Promise<void> {
  * qualquer coisa sobre o espanhol.
  */
 test.beforeAll(async () => {
-  const c = credenciaisSupabaseDeTeste();
-  const svc = createClient(c.url, c.serviceRole, {
+  const svc = createClient(credentials.url, credentials.serviceRole, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
+  const { data: users, error: usersError } = await svc.auth.admin.listUsers({ page: 1, perPage: 200 });
+  if (usersError) throw new Error("Falha ao localizar a fixture de idioma.");
+  const admin = users.users.find((user) => user.email === creds.users.admin!.email);
+  if (!admin) throw new Error("Fixture de administrador ausente para preservar o idioma.");
+  restaurarIdioma = await preservarIdiomaDoUsuario(svc.auth.admin, admin.id);
   /**
    * A organização é a DO SEED, nomeada — nunca "a primeira que vier".
    *
@@ -262,18 +272,7 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  const c = credenciaisSupabaseDeTeste();
-  const svc = createClient(c.url, c.serviceRole, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-  const email = creds.users.admin!.email;
-  const { data } = await svc.auth.admin.listUsers({ page: 1, perPage: 200 });
-  const admin = data?.users.find((u) => u.email === email);
-  if (!admin) throw new Error(`restauração: não achei ${email} para devolver o idioma`);
-  const { error } = await svc.auth.admin.updateUserById(admin.id, {
-    user_metadata: { ...admin.user_metadata, locale: null },
-  });
-  if (error) throw new Error(`restauração do idioma falhou: ${error.message}`);
+  await restaurarIdioma?.();
 });
 
 test.describe("o idioma escolhido chega à tela", () => {

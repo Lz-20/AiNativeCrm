@@ -334,10 +334,9 @@ test.describe("conversar com a IA que abriu o caso", () => {
     expect(m.painel.x).toBeGreaterThanOrEqual(0);
     expect(m.painel.x + m.painel.largura).toBeLessThanOrEqual(m.janela.largura);
     expect(m.rolagemHorizontal, "página com rolagem horizontal").toBeLessThanOrEqual(0);
-    // A fonte e a cor são as do PRODUTO, não as do sistema: um botão em
-    // Helvetica cinza é o sintoma de tema não carregado, e ele passa
-    // despercebido em screenshot.
-    expect(m.botao.fonte).toMatch(/Atkinson/i);
+    // A pilha do tema inclui o fallback CJK, sem download de fonte. Ainda
+    // distinguimos o tema carregado da fonte padrão de um documento sem CSS.
+    expect(m.botao.fonte).toMatch(/Segoe UI.*Noto Sans SC/);
     expect(m.botao.fundo).toMatch(/^rgba?\(/);
     expect(m.botao.fundo).not.toBe("rgba(0, 0, 0, 0)");
 

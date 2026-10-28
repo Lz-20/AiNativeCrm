@@ -161,14 +161,16 @@ test.describe("navegação agrupada", () => {
     await sidebar(page).getByRole("link", { name: "Ver tudo em IA" }).click();
     await page.waitForURL(/\/app\/ai$/);
 
-    // O hub organiza por jornada, não numa grade solta.
-    await expect(page.getByRole("heading", { name: "Montar o agente" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Ensinar o agente" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Acompanhar o agente" })).toBeVisible();
+    // O hub atual separa ação, preparação, contexto e revisão. Conhecimento
+    // continua alcançável pelo hub, mesmo depois da reorganização das seções.
+    for (const name of ["Agente em ação", "Preparar o agente", "Dar contexto ao agente", "Revisar operações"]) {
+      await expect(page.getByRole("heading", { name, level: 2, exact: true })).toBeVisible();
+    }
 
     await page.screenshot({ path: path.join(EVIDENCE, "nav-hub-ia.png"), fullPage: true });
 
-    await page.getByRole("link", { name: /Conhecimento/ }).click();
+    await page.getByRole("region", { name: "Dar contexto ao agente", exact: true })
+      .getByRole("link", { name: /Conhecimento/ }).click();
     await page.waitForURL(/knowledge\/sources/);
   });
 

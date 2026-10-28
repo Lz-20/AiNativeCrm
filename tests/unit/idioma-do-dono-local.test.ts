@@ -64,6 +64,18 @@ describe("idioma explícito e reversível do dono sintético", () => {
     expect(api.updateUserById).toHaveBeenLastCalledWith("fixture-owner", { user_metadata: { locale: "es" } });
   });
 
+  it("permite medir a tela chinesa e voltar ao idioma português da suíte", async () => {
+    const fixture = await criarFixtureIdiomaDoDonoLocal(local, email);
+    await fixture.aplicar("zh-CN");
+    await fixture.aplicar();
+    await fixture.restaurar();
+    expect(api.updateUserById.mock.calls).toEqual([
+      ["fixture-owner", { user_metadata: { locale: "zh-CN" } }],
+      ["fixture-owner", { user_metadata: { locale: "pt-BR" } }],
+      ["fixture-owner", { user_metadata: { locale: "es" } }],
+    ]);
+  });
+
   it("falha explicitamente se a restauração falhar", async () => {
     const fixture = await criarFixtureIdiomaDoDonoLocal(local, email);
     await fixture.aplicar();

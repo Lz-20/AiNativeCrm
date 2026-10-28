@@ -9,7 +9,7 @@ import { destinoEhLocal, type CredenciaisSupabase } from "../../../scripts/lib/e
 export async function criarFixtureIdiomaDoDonoLocal(
   credentials: Pick<CredenciaisSupabase, "url" | "dbUrl" | "serviceRole">,
   email: string,
-): Promise<{ aplicar: () => Promise<void>; restaurar: () => Promise<void> }> {
+): Promise<{ aplicar: (locale?: "pt-BR" | "zh-CN") => Promise<void>; restaurar: () => Promise<void> }> {
   if (!credentials.url || !destinoEhLocal(credentials.url) || !destinoEhLocal(credentials.dbUrl)) {
     throw new Error("A fixture de idioma exige Supabase local nos dois canais.");
   }
@@ -34,7 +34,7 @@ export async function criarFixtureIdiomaDoDonoLocal(
     if (updateError) throw new Error(`Falha ao ${phase} o idioma da fixture local.`);
   };
   return {
-    aplicar: () => setLocale("pt-BR", "configurar"),
+    aplicar: (locale = "pt-BR") => setLocale(locale, "configurar"),
     restaurar: () => setLocale(previousLocale ?? null, "restaurar"),
   };
 }

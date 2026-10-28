@@ -181,7 +181,7 @@ const ESCOPO_PARCIAL = "Sobre as demandas encerradas no período.";
  * `t` é opcional (identidade por padrão) porque `montarPares` roda no servidor
  * — dentro de uma API route (`app/api/v1/metrics/atrito/route.ts`), não de um
  * componente React — e é chamado também pelos testes unitários sem tradução
- * nenhuma. O idioma vem de `user.locale`, resolvido pela própria rota, e é a
+ * nenhuma. O idioma vem de `user.idioma`, já resolvido pela sessão, e é a
  * PRIMEIRA vez que este sistema de tradução atravessa a fronteira da API: até
  * aqui só telas liam `traduzir()`. O rótulo interpola números (regra `${...}`),
  * então cada `t()` cobre só a parte fixa da frase — o número nunca passa por

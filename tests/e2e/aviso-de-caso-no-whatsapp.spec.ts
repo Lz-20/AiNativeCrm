@@ -278,7 +278,7 @@ test.describe("aviso de caso no WhatsApp", () => {
     expect(m.salvar.altura).toBeGreaterThanOrEqual(32);
     expect(m.salvar.x + m.salvar.largura).toBeLessThanOrEqual(m.janela);
     expect(m.rolagemHorizontal, "a tela do aviso não pode rolar para o lado").toBeLessThanOrEqual(0);
-    expect(m.salvar.fonte).toMatch(/Atkinson/i);
+    expect(m.salvar.fonte).toMatch(/Segoe UI.*Noto Sans SC/);
     expect(m.salvar.fundo).not.toBe("rgba(0, 0, 0, 0)");
 
     // Em largura de telefone continua sem rolagem lateral.

@@ -48,17 +48,32 @@ import { expect, test } from "@playwright/test";
 
 import { lerCreds, loginComoAdmin, loginComoDono } from "./helpers/login-admin";
 import { afirmarDonoDoServidor } from "./utils/precondicao";
+import { credenciaisSupabaseDeTeste } from "../../scripts/lib/env-de-teste";
+import { criarFixtureIdiomaDoDonoLocal } from "./helpers/idioma-do-dono-local";
 
 const CHAVE_DE_TESTE = "re_teste_do_painel_9f3a2b";
 
 test.describe("Painel de configuração da instalação", () => {
+  let idioma: Awaited<ReturnType<typeof criarFixtureIdiomaDoDonoLocal>> | undefined;
   // ⚠️ As partes do job `e2e` compartilham banco SEM reset, e quem promove o
   // `e2e-dono` a `platform_admins` é `seed-e2e-system-update` — que o CI NÃO
   // roda como passo. Sem esta afirmação, esta bateria passaria ou reprovaria
   // conforme a spec que rodou antes dela, que é medir ordem de execução em vez
   // de produto.
   test.beforeAll(async () => {
-    await afirmarDonoDoServidor(lerCreds().users.dono!.email);
+    // /admin usa o perfil do dono, não o idioma da organização. Fixar a
+    // preferência da fixture preserva as asserções portuguesas deste fluxo.
+    // A guarda local precede lerCreds(), que pode semear se o arquivo faltar.
+    idioma = await criarFixtureIdiomaDoDonoLocal(
+      credenciaisSupabaseDeTeste(), "e2e-dono@pi-native.test",
+    );
+    const dono = lerCreds().users.dono!.email;
+    expect(dono).toBe("e2e-dono@pi-native.test");
+    await idioma.aplicar();
+    await afirmarDonoDoServidor(dono);
+  });
+  test.afterAll(async () => {
+    await idioma?.restaurar();
   });
 
   test.describe("como dono do servidor", () => {
@@ -214,6 +229,26 @@ test.describe("Painel de configuração da instalação", () => {
         page.getByText(/definido aqui nesta tela/i),
         "a origem continuou dizendo que o valor foi definido na tela",
       ).toHaveCount(0, { timeout: 15_000 });
+    });
+
+    test("o ponteiro de e-mail continua alcançável em chinês no celular", async ({ page }) => {
+      try {
+        await idioma!.aplicar("zh-CN");
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.goto("/admin/configuracao");
+        const ponteiro = page.getByTestId("ponteiro-email");
+        await expect(ponteiro).toHaveText("邮件发送服务（自有或外部）位于“邮件”→");
+        const bounds = await ponteiro.boundingBox();
+        expect(bounds).not.toBeNull();
+        expect(bounds!.height, "o texto curto também precisa de um alvo de toque").toBeGreaterThanOrEqual(24);
+        expect(bounds!.x).toBeGreaterThanOrEqual(0);
+        expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
+        await page.screenshot({ path: test.info().outputPath("configuracao-zh-mobile.png"), fullPage: true });
+        await ponteiro.click();
+        await expect(page).toHaveURL(/\/admin\/email/);
+      } finally {
+        await idioma!.aplicar();
+      }
     });
 
     // AS DUAS TELAS, e não só a minha: o campo do serviço externo passou a ser

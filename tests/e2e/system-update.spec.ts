@@ -574,6 +574,9 @@ test("quem não é dono do servidor não vê o botão", async ({ page, request }
   await expect(page.getByRole("link", { name: /nova versão/i })).toHaveCount(0);
 
   await page.goto("/app/settings/atualizacao");
-  await expect(page.getByText(/404 — Página não encontrada/i)).toBeVisible();
+  // Sem preferência no perfil do agent, a página global de 404 usa o padrão
+  // da instalação (zh-CN); a negação de acesso continua sendo o que se mede.
+  await expect(page.getByRole("heading", { name: "404 — 页面未找到", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /atualizar agora/i })).toHaveCount(0);
   await page.screenshot({ path: ".superpowers/evidence/task9-4-nao-dono-404.png" });
 });

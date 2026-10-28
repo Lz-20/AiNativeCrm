@@ -6,6 +6,8 @@ import * as path from "node:path";
 import { test, expect, type Page } from "@playwright/test";
 
 import { generateTotp, msUntilNextTotpWindow } from "./utils/totp";
+import { credenciaisSupabaseDeTeste } from "../../scripts/lib/env-de-teste";
+import { criarFixtureIdiomaDoDonoLocal } from "./helpers/idioma-do-dono-local";
 
 /**
  * O DONO DA INSTALAÇÃO CONFIGURA O SERVIDOR DE E-MAIL PELA TELA.
@@ -69,7 +71,8 @@ function loadCreds(): E2ECreds {
   return JSON.parse(fs.readFileSync(CREDS_PATH, "utf8")) as E2ECreds;
 }
 
-const creds = loadCreds();
+let creds: E2ECreds;
+let idioma: Awaited<ReturnType<typeof criarFixtureIdiomaDoDonoLocal>> | undefined;
 
 /** Mesmo helper das demais specs: os dois usuários do seed têm TOTP cadastrado. */
 async function loginComTotp(page: Page, email: string, secret: string): Promise<void> {
@@ -125,7 +128,17 @@ const SERVIDOR = {
   nome: "Clínica Bem Viver",
 };
 
-test.beforeAll(() => {
+test.beforeAll(async () => {
+  // /admin segue o perfil do dono; a fixture mantém português inclusive na
+  // limpeza pela action, depois restaura a preferência anterior.
+  // A guarda local precede loadCreds(), que pode executar o seed.
+  idioma = await criarFixtureIdiomaDoDonoLocal(
+    credenciaisSupabaseDeTeste(), "e2e-dono@pi-native.test",
+  );
+  const carregadas = loadCreds();
+  expect(carregadas.users.dono?.email).toBe("e2e-dono@pi-native.test");
+  creds = carregadas;
+  await idioma.aplicar();
   fs.mkdirSync(EVIDENCIA, { recursive: true });
 });
 
@@ -242,17 +255,22 @@ test.afterAll(async ({ browser }) => {
   // Limpeza pela MESMA action que a tela usa. Um `update` direto no banco pularia
   // a validação e deixaria a próxima spec medindo um estado que o produto nunca
   // produziria.
-  const page = await browser.newPage();
   try {
-    await entrarComoDono(page);
-    await page.goto("/admin/email");
-    await page.getByTestId("smtp-host").fill("");
-    await page.getByTestId("smtp-from-email").fill("");
-    await page.getByTestId("smtp-username").fill("");
-    await page.getByTestId("smtp-from-name").fill("");
-    await page.getByTestId("smtp-salvar").click();
-    await expect(page.getByText(/servidor de e-mail salvo/i)).toBeVisible({ timeout: 20_000 });
+    if (!creds) return; // A guarda local falhou antes de configurar o SMTP.
+    const page = await browser.newPage();
+    try {
+      await entrarComoDono(page);
+      await page.goto("/admin/email");
+      await page.getByTestId("smtp-host").fill("");
+      await page.getByTestId("smtp-from-email").fill("");
+      await page.getByTestId("smtp-username").fill("");
+      await page.getByTestId("smtp-from-name").fill("");
+      await page.getByTestId("smtp-salvar").click();
+      await expect(page.getByText(/servidor de e-mail salvo/i)).toBeVisible({ timeout: 20_000 });
+    } finally {
+      await page.close();
+    }
   } finally {
-    await page.close();
+    await idioma?.restaurar();
   }
 });

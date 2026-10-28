@@ -78,6 +78,8 @@ import * as zlib from "node:zlib";
 import { test, expect, type Page, type Locator } from "@playwright/test";
 
 import { generateTotp, msUntilNextTotpWindow } from "./utils/totp";
+import { credenciaisSupabaseDeTeste } from "../../scripts/lib/env-de-teste";
+import { criarFixtureIdiomaDoDonoLocal } from "./helpers/idioma-do-dono-local";
 
 const CREDS_PATH = path.join(process.cwd(), ".e2e-creds.json");
 const EVIDENCIA = path.join(process.cwd(), "evidence", "logo-moldura-tema-escuro");
@@ -105,7 +107,7 @@ function loadCreds(): E2ECreds {
   return JSON.parse(fs.readFileSync(CREDS_PATH, "utf8")) as E2ECreds;
 }
 
-const creds = loadCreds();
+let creds: E2ECreds;
 
 // ── Um PNG de verdade, montado byte a byte ──────────────────────────────────
 //
@@ -365,6 +367,19 @@ async function medirCaixa(alvo: Locator): Promise<Caixa> {
 test.describe.configure({ mode: "serial" });
 
 test.describe("a moldura do logo no tema escuro", () => {
+  let idioma: Awaited<ReturnType<typeof criarFixtureIdiomaDoDonoLocal>> | undefined;
+  test.beforeAll(async () => {
+    // O idioma pertence à fixture do dono; os toasts e a limpeza continuam
+    // verificando português sem depender do idioma padrão da instalação.
+    // A guarda local precede loadCreds(), que pode executar o seed.
+    idioma = await criarFixtureIdiomaDoDonoLocal(
+      credenciaisSupabaseDeTeste(), "e2e-dono@pi-native.test",
+    );
+    const carregadas = loadCreds();
+    expect(carregadas.users.dono?.email).toBe("e2e-dono@pi-native.test");
+    creds = carregadas;
+    await idioma.aplicar();
+  });
   // Cada caso faz o próprio login: `mode: "serial"` encadeia ORDEM e estado do
   // BANCO, não a sessão do navegador (as fixtures `page`/`context` são de escopo
   // de teste). Ver o comentário longo em `marca-logo.spec.ts`.
@@ -592,13 +607,18 @@ test.describe("a moldura do logo no tema escuro", () => {
    * transformaria em refém do caso anterior.
    */
   test.afterAll(async ({ browser }) => {
-    const contexto = await browser.newContext();
     try {
-      const pagina = await contexto.newPage();
-      await loginComTotp(pagina, creds.users.dono!.email, secret());
-      await removerLogoSeHouver(pagina, "/admin/marca", "instalacao");
+      if (!creds) return; // A guarda local falhou antes de qualquer subida.
+      const contexto = await browser.newContext();
+      try {
+        const pagina = await contexto.newPage();
+        await loginComTotp(pagina, creds.users.dono!.email, secret());
+        await removerLogoSeHouver(pagina, "/admin/marca", "instalacao");
+      } finally {
+        await contexto.close();
+      }
     } finally {
-      await contexto.close();
+      await idioma?.restaurar();
     }
   });
 });

@@ -38,7 +38,6 @@ import {
 import { audit } from "@/lib/audit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { normalizarIdioma } from "@/lib/i18n/idiomas";
 import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
@@ -99,8 +98,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   const authz = await requireRole("agent", { requestId, resource: "metrics" });
   if (!authz.ok) return authz.response;
   const { org: activeOrg, user } = authz;
-  const idioma = normalizarIdioma(user.locale);
-  const t = (texto: string) => traduzir(texto, idioma);
+  const t = (texto: string) => traduzir(texto, user.idioma);
 
   const url = new URL(req.url);
   const parsed = querySchema.safeParse({

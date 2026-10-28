@@ -144,6 +144,9 @@ export async function criarAtoresDasExtensoes(): Promise<AtoresDasExtensoes> {
         email,
         password: senha,
         email_confirm: true,
+        // A auditoria de plataforma lê o perfil, não o idioma do tenant.
+        // São usuários novos da fixture local, removidos por limpar().
+        user_metadata: { locale: "pt-BR" },
       });
       if (error || !data.user) throw new Error(error?.message ?? `Usuário ${papel} ausente.`);
       usuarios[papel] = { id: data.user.id, email };

@@ -65,7 +65,7 @@ test("suporte mantém identidade, opera B e encerra sem misturar A; readonly/exp
  }));
  observeAuth(page);page.context().on("page",observeAuth);
  const suffix=randomUUID().slice(0,8); const email=`support-${suffix}@invariant.test`;
- const {data:created,error}=await db.auth.admin.createUser({email,password,email_confirm:true});if(error||!created.user)throw error;
+ const {data:created,error}=await db.auth.admin.createUser({email,password,email_confirm:true,user_metadata:{locale:"pt-BR"}});if(error||!created.user)throw error;
  const actor=created.user.id;const orgs:string[]=[];let second: BrowserContext | undefined;
  let scenarioFailure: unknown;
  const receiverHits: string[] = [];

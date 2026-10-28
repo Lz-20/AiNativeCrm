@@ -613,6 +613,11 @@ jobs:
     #   · Controle positivo obrigatório antes de concluir ausência: rodar a sonda
     #     contra um corte conhecido (job 105911210567, do #1294) e ver 1.
     env:
+      # Só o runner E2E habilita a caixa local. O CLI fixado aceita estas
+      # chaves mesmo quando config.toml ainda usa o nome legado [inbucket].
+      SUPABASE_LOCAL_SMTP_ENABLED: "true"
+      SUPABASE_LOCAL_SMTP_PORT: "54324"
+      MAILPIT_URL: "http://127.0.0.1:54324"
       # Provider controlado; preview/assistência executam core, ferramentas e gates reais.
       INTERNAL_AGENT_RUN_STUB: "true"
       # Única exceção HTTP do laboratório de extensões. O servidor é iniciado
@@ -1302,6 +1307,21 @@ jobs:
           mkdir -p supabase/migrations
           supabase start
 
+      - name: Verificar caixa de e-mail local
+        run: |
+          node --input-type=module <<'NODE'
+          try {
+            const url = new URL(process.env.MAILPIT_URL);
+            if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" || url.username || url.password) throw new Error();
+            const response = await fetch(new URL("/api/v1/messages", url), { signal: AbortSignal.timeout(5000) });
+            if (!response.ok || !Array.isArray((await response.json()).messages)) throw new Error();
+            process.stdout.write("Caixa local de e-mail pronta.\n");
+          } catch {
+            process.stderr.write("Mailpit local indisponível: as jornadas de e-mail ainda não podem começar.\n");
+            process.exitCode = 1;
+          }
+          NODE
+
       # O baseline é um dump `--schema-only`: ele USA os tipos das extensões
       # (public.vector, citext, gin_trgm_ops) mas não as cria. O stack local do
       # Supabase traz os binários e não as habilita — mesmo prelúdio que o
@@ -1802,6 +1822,15 @@ jobs:
           AUTH_RATE_LIMIT_LOGIN_IP: "1000"
           # ver o comentário do passo de build: vazio NÃO desliga.
           SENTRY_DSN: "off"
+
+      - name: Preservar prova visual do alvo de toque em chinês
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always() && matrix.parte == 2
+        with:
+          name: configuracao-zh-mobile
+          path: test-results/**/configuracao-zh-mobile.png
+          if-no-files-found: ignore
+          retention-days: 30
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: failure()

@@ -101,7 +101,7 @@ export function PainelDeConfiguracao({ grupos, idioma }: { grupos: Grupo[]; idio
               <Link
                 href={g.ponteiro.href}
                 data-testid={`ponteiro-${g.grupo}`}
-                className="font-medium text-text underline underline-offset-4"
+                className="inline-flex min-h-6 items-center py-1.5 font-medium text-text underline underline-offset-4"
               >
                 {t(g.ponteiro.texto)}
               </Link>

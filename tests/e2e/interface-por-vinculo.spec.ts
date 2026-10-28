@@ -36,6 +36,9 @@ test("interface por membro atualiza ao vivo, preserva formulário e convite apli
   browser,
 }) => {
   test.setTimeout(240_000);
+  const appHome = new URL("/app", test.info().project.use.baseURL!).href;
+  const productsUrl = new URL("/app/products", appHome).href;
+  const tasksUrl = new URL("/app/tasks", appHome).href;
   const suffix = randomUUID().slice(0, 8);
   const emails = ["admin", "agent1", "agent2", "guest"].map(
     (name) => `${name}-${suffix}@invariant.test`,
@@ -121,10 +124,14 @@ test("interface por membro atualiza ao vivo, preserva formulário e convite apli
     await customize(page, emails[1]!, "Produtos");
     await expect(nav(member).getByRole("link", { name: "Inbox", exact: true })).toHaveCount(0);
     await member.goto("/app");
-    await member.waitForURL("**/app/products");
+    // A home é uma porta essencial mesmo na interface personalizada. A seleção
+    // controla as portas do menu; a pessoa chega ao produto pela navegação real.
+    await expect(member).toHaveURL(appHome);
     await nav(member).getByRole("link", { name: "Ver tudo em CRM" }).click();
     await expect(member.getByRole("link", { name: /Produtos/ }).last()).toBeVisible();
     await expect(member.getByRole("link", { name: /Contatos/ })).toHaveCount(0);
+    await member.getByRole("link", { name: /Produtos/ }).last().click();
+    await expect(member).toHaveURL(productsUrl);
     await member.keyboard.press("ControlOrMeta+k");
     await expect(member.getByRole("option").filter({ hasText: "Produtos" })).toBeVisible();
     await expect(member.getByRole("option").filter({ hasText: "Inbox" })).toHaveCount(0);
@@ -154,9 +161,11 @@ test("interface por membro atualiza ao vivo, preserva formulário e convite apli
     await login(guest, emails[3]!);
     await guest.goto(link);
     await guest.getByRole("button", { name: /aceitar/i }).click();
-    await guest.waitForURL("**/app/tasks");
+    await expect(guest).toHaveURL(appHome, { timeout: 20_000 });
     await expect(nav(guest).getByRole("link", { name: "Inbox", exact: true })).toHaveCount(0);
     await expect(nav(guest).getByRole("link", { name: "Tarefas", exact: true })).toBeVisible();
+    await nav(guest).getByRole("link", { name: "Tarefas", exact: true }).click();
+    await expect(guest).toHaveURL(tasksUrl);
     await expect(guest.getByRole("heading", { name: "Tarefas", exact: true })).toBeVisible();
     await expect(guest.getByText("Nenhuma tarefa por aqui", { exact: true })).toBeVisible();
     await expect(guest.locator("[aria-busy=true]")).toHaveCount(0);
@@ -175,7 +184,11 @@ test("interface por membro atualiza ao vivo, preserva formulário e convite apli
     await customize(page, emails[3]!, "Produtos");
     await guest.goto(link);
     await guest.getByRole("button", { name: /aceitar/i }).click();
-    await guest.waitForURL("**/app/products");
+    await expect(guest).toHaveURL(appHome, { timeout: 20_000 });
+    await expect(nav(guest).getByRole("link", { name: "Tarefas", exact: true })).toHaveCount(0);
+    await nav(guest).getByRole("link", { name: "Ver tudo em CRM" }).click();
+    await guest.getByRole("link", { name: /Produtos/ }).last().click();
+    await expect(guest).toHaveURL(productsUrl);
     // A coluna também descreve a seleção para quem só pode consultar a equipe.
     await customize(page, emails[2]!, "Produtos");
     await page.getByRole("combobox", { name: `Papel de ${emails[2]}` }).click();
