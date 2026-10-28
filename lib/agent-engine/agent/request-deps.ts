@@ -1,4 +1,5 @@
 import { createAgentRuntime } from "@/lib/agent-runtime";
+import { supabaseServerUrl } from "@/lib/supabase/urls";
 import { createPreviewAgentRuntime } from "@/lib/agent-runtime/pi/preview-fixture";
 import { MARCA_DA_CONSULTA_INTERNA } from "./conversa-do-caso/contexto";
 import { loadEnv } from "../env";
@@ -25,7 +26,7 @@ export function requestTurnDeps(): InboundTurnDeps {
         }
       : {}),
     crmCfg: crmEdgeConfigFromEnv({
-      SUPABASE_URL: env.NEXT_PUBLIC_SUPABASE_URL,
+      SUPABASE_URL: supabaseServerUrl(env),
       SUPABASE_SERVICE_ROLE_KEY: env.SUPABASE_SERVICE_ROLE_KEY,
     }),
     llmCfg,

@@ -7,10 +7,9 @@
 # 1. O SEGREDO SOBREVIVE INTEIRO E LITERAL. O crond executa cada linha do crontab
 #    por `/bin/sh -c`, então o valor é REAVALIADO na hora de disparar. A versão
 #    anterior interpolava o INTERNAL_SECRET dentro de aspas duplas: um `$` no
-#    valor virava expansão de variável (header truncado → todo cron respondendo
-#    401 em silêncio) e uma crase virava substituição de comando — execução
-#    arbitrária a cada minuto. Aqui o teste monta o header com um `sh` DE VERDADE,
-#    como o crond faria, e compara byte a byte.
+#    valor virava expansão de variável e uma crase virava substituição de comando.
+#    O sh real valida o caminho do config; curl real manda o header a um servidor
+#    HTTP local e o teste compara byte a byte, sem publicar uma porta externa.
 #
 # 2. NENHUMA ROTA SE PERDE. O crontab saiu do `command:` inline do compose e veio
 #    para cá; a contagem tem de bater com app/api/v1/cron. (A cerca principal é
@@ -25,6 +24,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 ENTRYPOINT="docker/scheduler/entrypoint.sh"
 fail=0
 TMP="$(mktemp -d)"
+CURL_CONFIG_TEST="$TMP/curl config'quoted.conf"
 trap 'rm -rf "$TMP"' EXIT
 
 check() {
@@ -44,10 +44,10 @@ rodar() { # $1 = valor de INTERNAL_SECRET ("" = ausente)
   local out="$TMP/crontab"
   : > "$out"
   if [ -z "$1" ]; then
-    env -u INTERNAL_SECRET PATH="$TMP/bin:$PATH" CRONTAB_PATH="$out" \
+    env -u INTERNAL_SECRET PATH="$TMP/bin:$PATH" CRONTAB_PATH="$out" CURL_CONFIG_PATH="$CURL_CONFIG_TEST" \
       sh "$ENTRYPOINT" >"$TMP/saida" 2>&1
   else
-    env INTERNAL_SECRET="$1" PATH="$TMP/bin:$PATH" CRONTAB_PATH="$out" \
+    env INTERNAL_SECRET="$1" PATH="$TMP/bin:$PATH" CRONTAB_PATH="$out" CURL_CONFIG_PATH="$CURL_CONFIG_TEST" \
       sh "$ENTRYPOINT" >"$TMP/saida" 2>&1
   fi
   echo $?
@@ -62,41 +62,51 @@ check "as $ROTAS_CODIGO rotas do código estão no crontab (achei $ROTAS_CRONTAB
   test "$ROTAS_CODIGO" -eq "$ROTAS_CRONTAB"
 check "uma linha por cron, nenhuma vazia" \
   test "$(grep -c . "$TMP/crontab")" -eq "$(wc -l < "$TMP/crontab" | tr -d ' ')"
+check "o crontab que crond registra não contém o segredo" \
+  bash -c '! grep -qE "Bearer|segredo-simples" "$1"' _ "$TMP/crontab"
+check "a configuração de curl existe separada" test -f "$CURL_CONFIG_TEST"
 
 echo "scheduler: o segredo atravessa o sh do crond intacto"
 # Os três caracteres que quebram interpolação ingênua, de uma vez só.
 HOSTIL='seg`whoami`redo$HOME-com'\''aspa-e-"aspas"'
+HOSTIL="${HOSTIL}\\barra%percent"
 RC="$(rodar "$HOSTIL")"
 check "gerou o crontab mesmo com segredo cheio de metacaractere" test "$RC" -eq 0
 
 # A medição que importa: pegar a PRIMEIRA linha, tirar o prefixo de agendamento,
 # e mandar um `sh` de verdade avaliá-la — exatamente o que o crond faz. O `curl`
-# é dublado por um script que imprime o header que recebeu.
-printf '#!/bin/sh\nwhile [ $# -gt 0 ]; do [ "$1" = "-H" ] && { printf "%%s" "$2"; exit 0; }; shift; done\nexit 1\n' > "$TMP/bin/curl"
+# é dublado somente aqui para medir qual caminho recebeu.
+printf '#!/bin/sh\nwhile [ $# -gt 0 ]; do [ "$1" = "--config" ] && { printf "%%s" "$2"; exit 0; }; shift; done\nexit 1\n' > "$TMP/bin/curl"
 chmod +x "$TMP/bin/curl"
 LINHA="$(head -1 "$TMP/crontab")"
 COMANDO="${LINHA#* * * * * }"                 # tira o agendamento de 5 campos
 COMANDO="${COMANDO%% >/dev/null*}"            # tira a redireção
 RECEBIDO="$(PATH="$TMP/bin:$PATH" sh -c "$COMANDO")"
-ESPERADO="Authorization: Bearer ${HOSTIL}"
-if [ "$RECEBIDO" = "$ESPERADO" ]; then
-  printf '  ✓ o header chega ao curl byte a byte igual ao segredo do .env\n'
-else
-  printf '  ✗ o segredo foi corrompido pelo sh do crond\n'
-  printf '     esperado: %s\n' "$ESPERADO"
-  printf '     recebido: %s\n' "$RECEBIDO"
-  fail=1
-fi
+check "o caminho com espaço/apóstrofo chega intacto ao curl pelo sh real" test "$RECEBIDO" = "$CURL_CONFIG_TEST"
+check "curl real envia exatamente o header esperado ao servidor local" \
+  node tests/shell/helpers/scheduler-curl-probe.cjs "$CURL_CONFIG_TEST" "Authorization: Bearer ${HOSTIL}"
 # Controle negativo do próprio instrumento: se a crase tivesse sido executada, o
 # crontab conteria a saída de `whoami` no lugar dela, não o texto literal.
-check "a crase NÃO foi executada (está literal no arquivo)" \
-  grep -q 'whoami' "$TMP/crontab"
+check "a crase está literal no config privado" grep -q 'whoami' "$CURL_CONFIG_TEST"
+check "o comando que crond registra não contém metacaracteres do segredo" \
+  bash -c '! grep -qE "Bearer|whoami|aspa|percent" "$1"' _ "$TMP/crontab"
+case "$(uname -s)" in
+  MINGW*|MSYS*) ;; # NTFS não representa os mode bits POSIX; a prova roda no Linux.
+  *) MODO="$(stat -c '%a' "$CURL_CONFIG_TEST" 2>/dev/null || stat -f '%Lp' "$CURL_CONFIG_TEST")"
+     check "o config privado tem modo 0600" test "$MODO" = 600 ;;
+esac
 
 echo "scheduler: sem INTERNAL_SECRET, recusa em vez de subir mudo"
 RC="$(rodar '')"
 check "sai com código 1" test "$RC" -eq 1
 check "explica o motivo na saída" grep -q "INTERNAL_SECRET" "$TMP/saida"
 check "não deixou crontab pela metade" test ! -s "$TMP/crontab"
+
+for hostil in $'segredo\rheader' $'segredo\nheader'; do
+  RC="$(rodar "$hostil")"
+  check "recusa CR/LF antes de escrever comandos" test "$RC" -eq 1
+  check "CR/LF não deixou crontab pela metade" test ! -s "$TMP/crontab"
+done
 
 if [ "$fail" -eq 0 ]; then
   echo "OK — todas as provas passaram."

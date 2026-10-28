@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { TenantAgentsResponse } from "@/app/api/v1/admin/tenants/[id]/agents/route";
 import { apiClient } from "@/lib/api/client";
 import { useRealtimeChannel } from "@/hooks/realtime/useRealtimeChannel";
+import { tenantAgentsTopic } from "@/lib/realtime/topics";
 
 export type { TenantAgentsResponse };
 
@@ -29,7 +30,7 @@ export function useTenantAgent(id: string) {
   }, [queryClient, id]);
 
   useRealtimeChannel({
-    name: id ? `tenant-agents-${id}` : "tenant-agents-disabled",
+    name: id ? tenantAgentsTopic(id) : "tenant-agents-disabled",
     broadcast: { event: "*" },
     onChange: invalidate,
     enabled: !!id,

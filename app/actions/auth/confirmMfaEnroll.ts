@@ -10,7 +10,7 @@ import { generateRecoveryCodes, hashRecoveryCode } from "@/lib/auth/recovery-cod
 
 export type ConfirmMfaEnrollResult =
   | { ok: true; recovery_codes: string[] }
-  | { ok: false; error: "invalid_code" | "challenge_failed" | "verify_failed"; message?: string };
+  | { ok: false; error: "invalid_code" | "challenge_failed" | "verify_failed" | "service_unavailable" | "recovery_codes_failed"; message?: string };
 
 /**
  * Confirms a TOTP enrollment by issuing a challenge + verifying the code, then
@@ -39,6 +39,12 @@ export async function confirmMfaEnroll(
     return { ok: false, error: "invalid_code" };
   }
 
+  // A tabela é exclusiva do servidor. Não confirme o fator sem poder guardar
+  // os códigos que a tela vai prometer ao usuário.
+  if (!isServiceRoleConfigured()) {
+    return { ok: false, error: "service_unavailable" };
+  }
+
   const { data: challenge, error: challengeErr } = await supabase.auth.mfa.challenge({
     factorId,
   });
@@ -62,17 +68,13 @@ export async function confirmMfaEnroll(
     code_hash: hashRecoveryCode(c),
   }));
 
-  // Try user-scoped first (RLS policy `recovery_codes_self` permits insert
-  // where user_id = auth.uid()). Fall back to admin if RLS rejects (e.g. AAL
-  // policy mismatch).
-  let { error: insertErr } = await supabase.from("user_recovery_codes").insert(rows);
-  if (insertErr && isServiceRoleConfigured()) {
-    const admin = createAdminClient();
-    const r = await admin.from("user_recovery_codes").insert(rows);
-    insertErr = r.error;
-  }
+  // A prova é o verify acima, no cliente da sessão autenticada. Reler AAL nos
+  // cookies desta mesma requisição pode ainda devolver o token AAL1 anterior.
+  // O browser jamais grava hashes: só esta ação, depois da prova do TOTP.
+  const { error: insertErr } = await createAdminClient().from("user_recovery_codes").insert(rows);
   if (insertErr) {
     console.error("[confirmMfaEnroll] failed to insert recovery codes:", insertErr.message);
+    return { ok: false, error: "recovery_codes_failed" };
   }
 
   await audit({

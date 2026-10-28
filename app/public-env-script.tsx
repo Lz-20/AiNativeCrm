@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 import { env } from "@/lib/env";
+import { assertPublicSupabaseKey } from "@/lib/supabase/public-key";
 
 /**
  * Injeta a config pública do Supabase em runtime, antes do JS da app rodar.
@@ -55,6 +56,7 @@ export async function PublicEnvScript({
   readonly marca: { readonly name: string; readonly logoUrl: string | null };
 }) {
   await headers();
+  assertPublicSupabaseKey(env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 
   const payload = JSON.stringify({
     NEXT_PUBLIC_SUPABASE_URL: env.NEXT_PUBLIC_SUPABASE_URL,

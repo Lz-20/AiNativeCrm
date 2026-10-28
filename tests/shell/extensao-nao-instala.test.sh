@@ -64,6 +64,8 @@ eval "$(sed -n '/^catalogo_tem_forma()/,/^}/p' "$SCRIPT")"
 bom="$(mktemp)"; echo '{"format_version":1,"origin":"https://x.test","revision":1,"entries":[]}' > "$bom"
 ruim="$(mktemp)"; echo '{"qualquer":"coisa"}' > "$ruim"
 vazio="$(mktemp)"; : > "$vazio"
+espacos="$(mktemp)"; printf ' \n\t\n' > "$espacos"
+duplo="$(mktemp)"; cat "$bom" "$bom" > "$duplo"
 
 catalogo_tem_forma "$bom"  && ok "catálogo com a forma certa é aceito" \
                            || erro "controle positivo falhou: um catálogo VÁLIDO foi recusado"
@@ -71,7 +73,11 @@ catalogo_tem_forma "$ruim" && erro "JSON sem forma de catálogo foi aceito" \
                            || ok "JSON sem forma de catálogo é recusado"
 catalogo_tem_forma "$vazio" && erro "arquivo vazio foi aceito" \
                             || ok "arquivo vazio é recusado"
-rm -f "$bom" "$ruim" "$vazio"
+catalogo_tem_forma "$espacos" && erro "arquivo só com espaços foi aceito" \
+                              || ok "arquivo só com espaços é recusado"
+catalogo_tem_forma "$duplo" && erro "dois documentos foram aceitos como um catálogo" \
+                            || ok "dois documentos são recusados"
+rm -f "$bom" "$ruim" "$vazio" "$espacos" "$duplo"
 
 bash -n "$SCRIPT" && ok "sintaxe válida"
 

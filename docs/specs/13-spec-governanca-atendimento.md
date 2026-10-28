@@ -309,6 +309,15 @@ contacts operacionais etc.) não são "config" e ficam fora do alvo desta fase.
 | channel_sessions, ai_*, orders, nuvemshop_products, idempotency_keys, warmup, storage_redaction_queue | `*_tenant_isolation_*` (ALL) | qualquer membro | sim | não classificado na matriz §4 | fora do escopo G2-03 |
 | api_audit_log | `audit_log_insert_tenant_member` (insert-only, append) | qualquer membro | por design | — | manter (select manager é read, não write) |
 
+**Atualização 0409:** a linha de auditoria acima registra o levantamento original
+de G2-03. A policy de INSERT foi removida e o privilégio de INSERT de PUBLIC,
+anon e authenticated foi revogado: append-only não garante a autoria de um evento
+enviado pelo cliente. `lib/audit/index.ts` escreve exclusivamente pelo admin
+client, com atribuição resolvida pela ação/rota; sem service key reporta falha e
+não recorre à sessão. As triggers SECURITY DEFINER continuam emitindo auditoria
+de mutações legítimas, a leitura segue isolada por organização e a vedação de
+UPDATE/DELETE/TRUNCATE também permanece para service_role.
+
 Resultado: as tabelas de **config org-flat** são `crm_pipelines` e `crm_stages`;
 a migration `20260716120000_0030_config_rls_role_policies.sql` aplica
 `fn_role_at_least(organization_id, 'manager')` nas write-policies delas e

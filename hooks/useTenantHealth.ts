@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api/client";
 import { useRealtimeChannel } from "@/hooks/realtime/useRealtimeChannel";
 import type { TenantHealthResponse } from "@/app/api/v1/admin/tenants/[id]/health/route";
+import { tenantHealthTopic } from "@/lib/realtime/topics";
 
 export type { TenantHealthResponse };
 
@@ -32,7 +33,7 @@ export function useTenantHealth(id: string) {
   // sessão httpOnly), recebe "ok" e nunca entrega evento. A correção mora em
   // `useRealtimeChannel`, que chama `setAuth` antes do `subscribe`.
   useRealtimeChannel({
-    name: id ? `tenant-health-${id}` : "tenant-health-disabled",
+    name: id ? tenantHealthTopic(id) : "tenant-health-disabled",
     broadcast: { event: "*" },
     onChange: invalidate,
     enabled: !!id,

@@ -18,13 +18,14 @@
 
 import { createClient as createSupabaseClient, type SupabaseClient } from "@supabase/supabase-js";
 import { env } from "@/lib/env";
+import { supabaseServerUrl } from "./urls";
 
 let _admin: SupabaseClient | null = null;
 
 export function createAdminClient(): SupabaseClient {
   if (_admin) return _admin;
 
-  _admin = createSupabaseClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+  _admin = createSupabaseClient(supabaseServerUrl(env), env.SUPABASE_SERVICE_ROLE_KEY, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,

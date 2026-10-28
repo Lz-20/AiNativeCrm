@@ -2,6 +2,7 @@
 import { useEffect, useId, useRef, useState, type RefObject } from "react";
 import { createClient, prepareRealtimeAuthentication } from "@/lib/supabase/browser";
 import type { RealtimeChannel } from "@supabase/supabase-js";
+import { subscribePrivateBroadcast } from "@/lib/realtime/broadcast-subscriptions";
 
 export type RealtimeStatus =
   | "connecting"
@@ -92,6 +93,19 @@ export function useRealtimeChannel(opts: UseRealtimeChannelOpts): {
   const ultimaEntrega = useRef<number | null>(null);
 
   const [status, setStatus] = useState<RealtimeStatus>(enabled ? "connecting" : "closed");
+  const [broadcastStatus, setBroadcastStatus] = useState<RealtimeStatus>(enabled ? "connecting" : "closed");
+
+  useEffect(() => {
+    if (!enabled || !broadcast) return;
+    return subscribePrivateBroadcast(name, {
+      event: broadcast.event,
+      onStatus: setBroadcastStatus,
+      onMessage: (payload) => {
+        ultimaEntrega.current = Date.now();
+        onChangeRef.current(payload);
+      },
+    });
+  }, [name, enabled, broadcast?.event]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // React 19 strict mode mounts effects twice in dev. If two consumers ever
   // share the same logical channel name (or the same component re-mounts),
@@ -101,7 +115,7 @@ export function useRealtimeChannel(opts: UseRealtimeChannelOpts): {
   const instanceId = useId();
 
   useEffect(() => {
-    if (!enabled) {
+    if (!enabled || (broadcast && !postgresChanges)) {
       setStatus("closed");
       return;
     }
@@ -180,7 +194,6 @@ export function useRealtimeChannel(opts: UseRealtimeChannelOpts): {
           handler,
         );
       }
-      if (broadcast) novo = novo.on("broadcast", { event: broadcast.event }, handler);
       active = novo;
 
       // Bootstrap concluído antes do primeiro join; a callback do client mantém
@@ -236,5 +249,8 @@ export function useRealtimeChannel(opts: UseRealtimeChannelOpts): {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name, enabled, instanceId, postgresChanges?.event, postgresChanges?.table, postgresChanges?.filter, postgresChanges?.schema, broadcast?.event]);
 
-  return { status, ultimaEntrega };
+  const effectiveStatus = broadcast
+    ? (postgresChanges && status !== "subscribed" ? status : broadcastStatus)
+    : status;
+  return { status: enabled ? effectiveStatus : "closed", ultimaEntrega };
 }

@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useRealtimeChannel } from "@/hooks/realtime/useRealtimeChannel";
 import type { AlertKind } from "@/app/api/v1/admin/dashboard/kpis/route";
+import { PLATFORM_ALERTS_TOPIC } from "@/lib/realtime/topics";
 
 const KIND_LABELS: Record<AlertKind, string> = {
   waha_ban: "Alerta WAHA",
@@ -36,5 +37,5 @@ export function useAlertsRealtime() {
   // ANÔNIMO — canal que recebe "ok", loga "subscribed" e nunca entrega evento.
   // A correção (24b9ec2) mora em `useRealtimeChannel`, que chama `setAuth` antes
   // do `subscribe`; quem abre canal direto ficou de fora dela.
-  useRealtimeChannel({ name: "alerts-platform", broadcast: { event: "*" }, onChange });
+  useRealtimeChannel({ name: PLATFORM_ALERTS_TOPIC, broadcast: { event: "*" }, onChange });
 }

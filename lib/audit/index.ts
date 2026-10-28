@@ -50,11 +50,13 @@ interface AuditEntry {
 
 export async function audit(entry: AuditEntry): Promise<void> {
   try {
-    // Prefer service-role admin (bypasses RLS, works for unauthenticated audit
-    // events like login_failed). Fall back to user-scoped client when service
-    // role is missing in dev — RLS policy `audit_log_insert_tenant_member` has
-    // null qual so authenticated users can insert their own audit rows.
-    const client = isServiceRoleConfigured() ? createAdminClient() : await createClient();
+    // A origem da auditoria é o servidor. Permitir INSERT ao cliente deixava
+    // qualquer sessão fabricar ator, horário e eventos de plataforma.
+    if (!isServiceRoleConfigured()) {
+      reportAuditFailure("service role not configured", entry);
+      return;
+    }
+    const client = createAdminClient();
     let supportMetadata: Record<string, unknown> = {};
     try {
       if (entry.actorUserId && entry.actorAuthSessionId && entry.organizationId && !entry.actorApiTokenId) {
@@ -118,7 +120,11 @@ export async function auditForOrganizations(
 ): Promise<void> {
   if (organizationIds.length === 0) return;
   try {
-    const client = isServiceRoleConfigured() ? createAdminClient() : await createClient();
+    if (!isServiceRoleConfigured()) {
+      reportAuditFailure("service role not configured", entry);
+      return;
+    }
+    const client = createAdminClient();
     const { error } = await client.from("api_audit_log").insert(
       organizationIds.map((organizationId) => ({
         action: entry.action,

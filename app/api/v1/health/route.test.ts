@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 /**
@@ -11,8 +11,8 @@ import { NextRequest } from "next/server";
  * erradas mais comuns do self-host.
  *
  * A condição de alcance existe porque, das três variáveis de endereço que a
- * rota consulta, só a do banco é validada como URL (`lib/env.ts:69`, `.url()`);
- * as outras duas (`lib/env.ts:140` e `155`) são `required()` puro. Um valor sem
+ * rota consulta, só a do banco é validada como URL no import (`lib/env.ts`);
+ * as integrações opcionais conferem a forma antes da operação. Um valor sem
  * esquema, ou com as aspas do `.env` sobrando, passa pelo Zod e explode no
  * `fetch` com o host dentro da mensagem:
  *
@@ -40,10 +40,12 @@ import { NextRequest } from "next/server";
  */
 const HOST_VAZADO = "servico-interno.vps-do-cliente.com";
 const SEGREDO = "segredo-interno-de-teste-com-tamanho-suficiente";
+const TOKEN_PRIVADO = "token-privado-do-provedor-fixture";
 
 vi.mock("@/lib/env", () => ({
   env: {
     NEXT_PUBLIC_SUPABASE_URL: "https://projeto-do-cliente.supabase.co",
+    SUPABASE_INTERNAL_URL: "http://supabase-api-gw.private:8000",
     SUPABASE_SERVICE_ROLE_KEY: "chave-de-teste",
     UPSTASH_REDIS_REST_URL: "servico-interno.vps-do-cliente.com",
     UPSTASH_REDIS_REST_TOKEN: "token-de-teste",
@@ -57,7 +59,27 @@ function pedido(query = "", headers: Record<string, string> = {}): NextRequest {
 }
 
 describe("GET /api/v1/health — o endereço interno não sai para quem não tem o segredo", () => {
-  beforeEach(() => vi.resetModules());
+  beforeEach(() => {
+    vi.resetModules();
+    // Nenhum host real é consultado, nem pelo probe independente de Supabase.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new Error(`ENOTFOUND ${HOST_VAZADO} ${TOKEN_PRIVADO}`)),
+    );
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("consulta Supabase pelo endereço interno sem publicá-lo na resposta", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("[]", { status: 200 })));
+    const { GET } = await import("./route");
+    const body = await (await GET(pedido())).json();
+    expect(fetch).toHaveBeenCalledWith(
+      "http://supabase-api-gw.private:8000/rest/v1/organizations?select=id&limit=1",
+      expect.objectContaining({ cache: "no-store" }),
+    );
+    expect(body.data.checks.supabase.status).toBe("ok");
+    expect(JSON.stringify(body)).not.toContain("supabase-api-gw.private");
+  });
 
   it("não publica o host numa resposta anônima, nem pelo error", async () => {
     const { GET } = await import("./route");
@@ -80,14 +102,24 @@ describe("GET /api/v1/health — o endereço interno não sai para quem não tem
     expect(data.checks.redis.status).toBe("down");
   });
 
-  it("devolve o texto original a quem tem o segredo interno", async () => {
+  it("verbose mantém categorias e variáveis, sem ecoar valores ou erros externos", async () => {
     const { GET } = await import("./route");
     const req = pedido("?verbose=1", { authorization: `Bearer ${SEGREDO}` });
-    const corpo = JSON.stringify(await (await GET(req)).json());
-
-    // O outro lado da mesma moeda: se a redação passasse a valer também no modo
-    // verboso, o operador perderia o diagnóstico e ninguém notaria — o caso
-    // acima ficaria verde do mesmo jeito.
-    expect(corpo).toContain(HOST_VAZADO);
+    const body = await (await GET(req)).json();
+    const corpo = JSON.stringify(body);
+    expect(body.data.checks.redis).toMatchObject({
+      status: "down",
+      reason: "configuracao_invalida",
+      target: "(endereço inválido)",
+    });
+    expect(body.data.checks.redis.error).toContain("UPSTASH_REDIS_REST_URL");
+    expect(body.data.checks.redis.error).toContain("UPSTASH_REDIS_REST_TOKEN");
+    expect(body.data.checks.supabase).toMatchObject({
+      error: "request_failed",
+      reason: "endereco_nao_resolve",
+    });
+    expect(corpo).not.toContain(HOST_VAZADO);
+    expect(corpo).not.toContain(TOKEN_PRIVADO);
+    expect(corpo).not.toContain("ENOTFOUND");
   });
 });

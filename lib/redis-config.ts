@@ -3,8 +3,8 @@
  *
  * ─── O erro que isto nomeia ─────────────────────────────────────────────────
  *
- * `UPSTASH_REDIS_REST_URL` e `UPSTASH_REDIS_REST_TOKEN` são `required()` puro em
- * `lib/env.ts` — sem `.url()`, sem forma. Qualquer texto passa pelo Zod. E a
+ * `UPSTASH_REDIS_REST_URL` e `UPSTASH_REDIS_REST_TOKEN` são opcionais em
+ * `lib/env.ts`; a forma é validada aqui antes da operação. E a
  * forma errada mais comum não é digitação: é o `.env` do self-host levando junto
  * o que estava em volta do valor —
  *
@@ -62,7 +62,8 @@ export function validarConfigRedisRest(
   url: string | undefined,
   token: string | undefined,
 ): RedisConfigStatus {
-  if (!url || !token) return { ok: false, reason: "nao_configurado" };
+  if (!url && !token) return { ok: false, reason: "nao_configurado" };
+  if (!url || !token) return { ok: false, reason: "configuracao_invalida" };
 
   if (!valorSemFormatacaoExtra(url) || !valorSemFormatacaoExtra(token)) {
     return { ok: false, reason: "configuracao_invalida" };

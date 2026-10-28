@@ -3,8 +3,8 @@
  *
  * The runtime uses `sendMessageHandler` for the production path (handles WAHA
  * dispatch + outbound message row + ack + retries), so this module is a small
- * convenience for direct callers (tests, smoke checks). Returns null when
- * WAHA env is not configured — callers must treat that as a noop, not error.
+ * convenience for direct callers (tests, smoke checks). Missing configuration
+ * rejects the send explicitly, just like the channel adapter.
  */
 import { getWahaClient } from "./client";
 
@@ -61,8 +61,8 @@ export function resolveWahaChatId(input: ResolveWahaChatIdInput): string | null 
   return null;
 }
 
-export async function sendWAHA(input: SendWahaInput): Promise<unknown | null> {
+export async function sendWAHA(input: SendWahaInput): Promise<unknown> {
   const client = getWahaClient();
-  if (!client) return null;
+  if (!client) throw new Error("waha_not_configured");
   return client.sendMessage(input.sessionName, input.chatId, input.text);
 }

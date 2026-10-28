@@ -1,4 +1,5 @@
 import { requireSupportWrite } from "@/lib/impersonate/support";
+import { storageUrlForDelivery } from "@/lib/supabase/storage-url";
 /**
  * A imagem do cabeçalho de uma definição — subir do computador, sem colar URL.
  *
@@ -135,5 +136,5 @@ export async function POST(req: NextRequest): Promise<Response> {
     return fail("internal_error", "Erro ao preparar o link da imagem.", 500, { requestId });
   }
 
-  return ok({ url: assinada.signedUrl, path: caminho }, { requestId });
+  return ok({ url: storageUrlForDelivery(assinada.signedUrl), path: caminho }, { requestId });
 }

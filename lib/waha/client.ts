@@ -1,7 +1,7 @@
 /**
  * Minimal WAHA REST client used during onboarding (and elsewhere). Returns
  * `null` from `getWahaClient()` when env is not configured so callers can
- * gracefully render a "Docker is not up" banner instead of crashing.
+ * gracefully render an unconfigured integration banner instead of crashing.
  *
  * Auth: o contêiner recebe SHA512 hex; X-Api-Key recebe a chave plaintext.
  */
@@ -171,6 +171,7 @@ export class WahaClient {
     private readonly apiKey: string,
     opts: WahaClientOpts = {},
   ) {
+    if (!baseUrl.trim() || !apiKey.trim()) throw new Error("waha_not_configured");
     this.tetoMs = opts.tetoMs ?? TETO_PADRAO_MS;
   }
 
@@ -649,13 +650,12 @@ export function wahaFriendlyError(erro: unknown): string {
 }
 
 /**
- * Returns a configured client or null. Null means the WAHA Docker isn't up
- * or the env is using the dev placeholder; the UI must render a banner
- * prompting the user to start it.
+ * Returns a configured client or null. Null means missing configuration or a
+ * dev placeholder; constructing the client does not probe service health.
  */
 export function getWahaClient(): WahaClient | null {
   const url = process.env.WAHA_API_BASE_URL;
   const key = process.env.WAHA_API_KEY;
-  if (!url || !key || key === "dev_plaintext_change_me") return null;
+  if (!url?.trim() || !key?.trim() || key.trim() === "dev_plaintext_change_me") return null;
   return new WahaClient(url, key);
 }

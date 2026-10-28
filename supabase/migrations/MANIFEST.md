@@ -425,3 +425,7 @@ To re-apply on a fresh Supabase project, replay the migrations in version order 
 
 | `20261002032000` | `0407_ai_wiki_evidence` | Immutable current Wiki snapshots with source-version manifest and per-organization ownership. |
 | `20261003010000` | `0408_cliente_agenda_guc_valido` | Forward fix: legal pi_native custom GUC restores appointment-derived customer recognition and its protected-column trigger without modifying historical migrations or data. |
+
+| `20261027010000` | `0409_credenciais_e_auditoria_server_only` | Recuperação MFA exclusiva do servidor (enrollment verificado, rotação AAL2 e consumo único), resolução de número apenas para o worker e INSERT de auditoria reservado ao servidor; preserva leitura por tenant e append-only. |
+| `20261027010100` | `0410_lgpd_comandas_na_cascata` | Forward fix da divergência 0370/baseline: reúne o corpo final da cascata LGPD com remoção de notes e redação de cancel_reason/reverse_reason em sales, sem perder valores financeiros, status, vínculo ou os demais braços. |
+| `20261027010200` | `0411_storage_e_broadcast_por_papel` | Storage exige vínculo aceito/ativo, MFA da sessão e papel (manager para escrita de conhecimento, admin para exportação LGPD); preserva suporte explícito. Publica conversation_notes e autoriza leitura de Broadcast privado por topic de tenant/plataforma; browser não ganha INSERT, dados continuam em consultas RLS. Sem alteração de dados, owners ou roles gerenciados. |

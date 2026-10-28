@@ -406,10 +406,10 @@ itens envelhecem em ritmos diferentes, e o cabeçalho passava a mentir por todos
   `grep -rln 'authRateLimited\|checkRateLimit(' app lib --include='*.ts' --include='*.tsx'`.
   Esta linha dizia "existe em 2 pontos; login e signup estão sem" — era o estado anterior à
   issue #64, e o `docs/threat-model.md` ainda carrega a versão velha, com nota de reauditoria.
-- Fallback do rate limit é **em memória** — mas o gatilho não é "sem Upstash": `lib/env.ts`
-  declara as duas variáveis do Upstash como `required()` e o app não sobe sem elas
-  (`grep -n UPSTASH lib/env.ts`). O que cai para a memória é Redis **inalcançável** com a
-  variável presente, e aí o limite passa a ser por processo.
+- Upstash é opcional no primeiro boot Web (`rg -n UPSTASH lib/env.ts`). Sem configuração
+  completa ou com Redis inalcançável, o rate limit usa memória **por processo** e o health
+  registra a integração degradada ou inválida. Limites compartilhados e coordenação entre
+  processos exigem Redis real; a fila persistente continua no Postgres.
 - `Idempotency-Key` é lido por **4** rotas e o contrato promete nos POSTs de criação. Há duas
   implementações com recibo (`lgpd/requests/[id]/approve` e `admin/tenants`) e, desde este
   commit, uma reutilizável em `lib/api/idempotency.ts`, aplicada em `message-templates`.

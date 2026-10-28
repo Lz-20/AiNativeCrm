@@ -5,6 +5,14 @@ node_modules
 .git
 .env
 .env.*
+**/.env
+**/.env.*
+# VPS-only infrastructure and operator artifacts never belong in application images.
+infra
+final-20261027
+**/private-backups
+**/*.dump
+**/postgres-cluster.tar
 test-results
 tests
 playwright.config.ts
@@ -30,3 +38,21 @@ scratchpad
 evidence
 .superpowers
 *.tsbuildinfo
+
+# Local deployment evidence and credential backups are never build inputs.
+.local
+.auth
+.qa-vps
+.qa-backups
+backups
+secrets
+credentials
+output
+tmp
+*.dump
+*.sql.gz
+*.har
+*.trace.zip
+*.p12
+*.pfx
+*.private.key

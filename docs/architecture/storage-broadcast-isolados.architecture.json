@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "title": "Storage e sinais privados por tenant",
+  "description": "Implementação local; migration 0411 e eventos de rede ainda aguardam validação no staging. Baseline congelado preservado durante a inicialização.",
+  "lanes": [
+    { "id": "server", "label": "Servidor e identidade" },
+    { "id": "platform", "label": "Supabase" },
+    { "id": "browser", "label": "Browser" }
+  ],
+  "nodes": [
+    { "id": "handoff", "lane": "server", "label": "lib/ai/handoff/orchestrator.ts", "sublabel": "Handoff durável, audit/event_log e aviso sem conteúdo" },
+    { "id": "identity", "lane": "server", "label": "JWT / membership aceito / suporte / MFA" },
+    { "id": "policies", "lane": "platform", "label": "0411: Storage e Broadcast RLS", "sublabel": "Papel na org ativa; SELECT de topic, browser sem INSERT" },
+    { "id": "storage", "lane": "platform", "label": "storage.objects", "sublabel": "Conhecimento manager+; exportação LGPD admin+" },
+    { "id": "realtime", "lane": "platform", "label": "Realtime private org:UUID:queue", "sublabel": "Sinal transitório; Postgres Changes publica conversation_notes" },
+    { "id": "shared", "lane": "browser", "label": "broadcast-subscriptions.ts", "sublabel": "Topic exato, múltiplos listeners e retry compartilhado" },
+    { "id": "inbox", "lane": "browser", "label": "useConversationsRealtime / inbox", "sublabel": "Invalida query; dados passam pela API com RLS" },
+    { "id": "api", "lane": "server", "label": "API de conversas / Storage", "sublabel": "Tenant e papel resolvidos pelo servidor" }
+  ],
+  "edges": [
+    { "id": "handoff-signal", "from": "handoff", "to": "realtime" },
+    { "id": "identity-policy", "from": "identity", "to": "policies" },
+    { "id": "policy-rt", "from": "policies", "to": "realtime" },
+    { "id": "policy-storage", "from": "policies", "to": "storage" },
+    { "id": "signal-listener", "from": "realtime", "to": "shared" },
+    { "id": "listener-inbox", "from": "shared", "to": "inbox" },
+    { "id": "inbox-refresh", "from": "inbox", "to": "api" },
+    { "id": "api-screen", "from": "api", "to": "inbox" },
+    { "id": "api-storage", "from": "api", "to": "storage" },
+    { "id": "storage-result", "from": "storage", "to": "api" }
+  ],
+  "mainPath": ["handoff", "realtime", "shared", "inbox", "api"]
+}

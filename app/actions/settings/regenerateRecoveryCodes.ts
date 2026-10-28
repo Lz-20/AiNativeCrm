@@ -27,6 +27,16 @@ export async function regenerateRecoveryCodes(): Promise<RegenerateRecoveryCodes
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: "unauthenticated" };
 
+  // Ter um fator cadastrado não prova a posse dele: a sessão do primeiro
+  // fator também consegue listá-lo. A rotação privilegiada exige AAL2 atual.
+  const { data: assurance, error: assuranceError } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (assuranceError || assurance?.currentLevel !== "aal2") {
+    return { ok: false, error: "mfa_required" };
+  }
+  if (!isServiceRoleConfigured()) {
+    return { ok: false, error: "service_unavailable" };
+  }
+
   // Confirm user has a verified TOTP factor (regenerate is meaningless otherwise).
   const { data: factors } = await supabase.auth.mfa.listFactors();
   const hasFactor = factors?.totp?.some((f) => f.status === "verified");
@@ -35,25 +45,14 @@ export async function regenerateRecoveryCodes(): Promise<RegenerateRecoveryCodes
   const codes = generateRecoveryCodes();
   const rows = codes.map((c) => ({ user_id: user.id, code_hash: hashRecoveryCode(c) }));
 
-  // Delete + insert. Use admin client when available (RLS for delete may be
-  // tighter than insert). Fall back to user-scoped.
-  let delErr: unknown = null;
+  // A tabela não aceita escrita direta da sessão, mesmo AAL2. O servidor
+  // resolve user.id via getUser() e só chega aqui após provar o segundo fator.
+  const admin = createAdminClient();
+  const { error: delErr } = await admin.from("user_recovery_codes").delete().eq("user_id", user.id);
   let insErr: unknown = null;
-  if (isServiceRoleConfigured()) {
-    const admin = createAdminClient();
-    const d = await admin.from("user_recovery_codes").delete().eq("user_id", user.id);
-    delErr = d.error;
-    if (!delErr) {
-      const ins = await admin.from("user_recovery_codes").insert(rows);
-      insErr = ins.error;
-    }
-  } else {
-    const d = await supabase.from("user_recovery_codes").delete().eq("user_id", user.id);
-    delErr = d.error;
-    if (!delErr) {
-      const ins = await supabase.from("user_recovery_codes").insert(rows);
-      insErr = ins.error;
-    }
+  if (!delErr) {
+    const ins = await admin.from("user_recovery_codes").insert(rows);
+    insErr = ins.error;
   }
   if (delErr) {
     const msg = (delErr as { message?: string }).message ?? "delete_failed";

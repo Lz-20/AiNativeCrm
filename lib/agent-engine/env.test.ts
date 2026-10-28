@@ -15,6 +15,16 @@ const REQUIRED: NodeJS.ProcessEnv = {
 };
 
 describe("loadEnv — vazio é ausente (contrato BYOK do README)", () => {
+  it("preserva o endereço interno opcional sem alterar o público", () => {
+    const env = loadEnv({ ...REQUIRED, SUPABASE_INTERNAL_URL: "http://api-gw:8000" });
+    expect(env.SUPABASE_INTERNAL_URL).toBe("http://api-gw:8000");
+    expect(env.NEXT_PUBLIC_SUPABASE_URL).toBe(REQUIRED.NEXT_PUBLIC_SUPABASE_URL);
+    expect(loadEnv(REQUIRED).SUPABASE_INTERNAL_URL).toBe("");
+    expect(() =>
+      loadEnv({ ...REQUIRED, SUPABASE_INTERNAL_URL: "http://user:secret@api-gw:8000" }),
+    ).toThrowError(/SUPABASE_INTERNAL_URL/);
+  });
+
   it("ANTHROPIC_API_KEY= (vazia) é tratada como ausente — worker sobe", () => {
     const env = loadEnv({ ...REQUIRED, ANTHROPIC_API_KEY: "" });
     expect(env.ANTHROPIC_API_KEY).toBeUndefined();
@@ -28,9 +38,7 @@ describe("loadEnv — vazio é ausente (contrato BYOK do README)", () => {
   });
 
   it("obrigatória VAZIA = erro claro nomeando a var (fail-fast preservado)", () => {
-    expect(() => loadEnv({ ...REQUIRED, SUPABASE_DB_URL: "" })).toThrowError(
-      /SUPABASE_DB_URL/,
-    );
+    expect(() => loadEnv({ ...REQUIRED, SUPABASE_DB_URL: "" })).toThrowError(/SUPABASE_DB_URL/);
   });
 
   it("obrigatória ausente = mesmo erro claro", () => {

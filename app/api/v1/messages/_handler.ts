@@ -47,6 +47,7 @@ import type { ListMessagesQuery, SendMessageInput } from "@/lib/schemas";
 import { sendTemplateForSession } from "@/lib/channels/meta/send-template-for-session";
 import { nomeDoContato } from "@/lib/contacts/rotulo-do-contato";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { storageUrlForDelivery } from "@/lib/supabase/storage-url";
 import type { Message } from "@/lib/types/messaging";
 
 type SB = SupabaseClient;
@@ -843,7 +844,7 @@ export async function sendMessageHandler(
           providerConversationId: c.provider_conversation_id,
           kind: input.type,
           media: {
-            url: signed.signedUrl,
+            url: storageUrlForDelivery(signed.signedUrl),
             mime: input.media_mime ?? "application/octet-stream",
             filename,
             caption: input.body ?? null,

@@ -25,6 +25,7 @@ import { timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { env } from "@/lib/env";
+import { supabaseServerUrl } from "@/lib/supabase/urls";
 import { alvoDe, classificarFalhaDeAlcance, type FalhaDeAlcance } from "@/lib/net/alcance";
 import { validarConfigRedisRest } from "@/lib/redis-config";
 
@@ -44,6 +45,7 @@ type MotivoDeFalha =
 type Check = {
   status: CheckStatus;
   latency_ms: number;
+  /** Diagnóstico estável; nunca valor de configuração, corpo externo ou erro cru. */
   error?: string;
   reason?: MotivoDeFalha;
   /** Protocolo + host + porta que tentamos. Só com `?verbose=1` autenticado. */
@@ -68,16 +70,19 @@ function motivoDoStatusHttp(status: number): MotivoDeFalha {
 
 async function checkSupabase(): Promise<Check> {
   const t0 = Date.now();
-  const url = env.NEXT_PUBLIC_SUPABASE_URL;
+  const url = supabaseServerUrl(env);
   try {
-    // Ping leve via REST com anon key — não precisa de service_role pra health check.
-    // Se chegar 200/401/empty body, conexão e API key estão OK.
-    const key = env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    // As policies de organizations chamam helpers sem EXECUTE para anon (0108).
+    // Readiness verifica o acesso backend ao schema, não a autorização de tenant.
+    // HEAD limitado não traz linhas; a key só sai para o endereço configurado.
+    const key = env.SUPABASE_SERVICE_ROLE_KEY;
     const res = await withTimeout(
       fetch(`${url}/rest/v1/organizations?select=id&limit=1`, {
+        method: "HEAD",
         headers: {
           apikey: key,
-          Authorization: `Bearer ${key}`,
+          // A secret key nova não é JWT. Só o service_role legado usa Bearer.
+          ...(key.startsWith("sb_secret_") ? {} : { Authorization: `Bearer ${key}` }),
           // O SCHEMA VAI EXPLÍCITO, como o resto do app faz.
           //
           // Este `fetch` é cru, então ele cai no schema DEFAULT do PostgREST —
@@ -100,10 +105,12 @@ async function checkSupabase(): Promise<Check> {
           "Accept-Profile": "public",
         },
         cache: "no-store",
+        // Nenhum redirecionamento recebe a credencial privilegiada.
+        redirect: "error",
       }),
     );
-    // 200 (lista vazia por RLS) ou 401/403 (auth ok mas RLS bloqueia anon) → conexão OK
-    if (res.status === 200 || res.status === 401 || res.status === 403) {
+    // 401/403 continua down: usar credencial backend não transforma recusa em sucesso.
+    if (res.status === 200) {
       return { status: "ok", latency_ms: Date.now() - t0, target: alvoDe(url) };
     }
     return {
@@ -117,7 +124,7 @@ async function checkSupabase(): Promise<Check> {
     return {
       status: "down",
       latency_ms: Date.now() - t0,
-      error: e instanceof Error ? e.message : String(e),
+      error: "request_failed",
       reason: classificarFalhaDeAlcance(e),
       target: alvoDe(url),
     };
@@ -142,9 +149,8 @@ async function checkRedis(): Promise<Check> {
    * Só "não configurado" segue `degraded`: é integração que ninguém contratou.
    * Configurado errado é `down` — o produto conta com o Redis e não o tem.
    *
-   * O texto continua carregando o endereço de propósito: `semAlvo()` o redige
-   * para quem não tem o segredo interno, e quem tem precisa ver QUAL valor está
-   * malformado — dizer só "inválido" sem dizer qual não conserta nada.
+   * Mesmo no modo verboso, só nomes de variáveis entram no erro. O valor pode
+   * conter credenciais coladas por engano; `alvoDe` limita o alvo a host/porta.
    */
   const config = validarConfigRedisRest(url, token);
   if (!config.ok) {
@@ -154,7 +160,7 @@ async function checkRedis(): Promise<Check> {
     return {
       status: "down",
       latency_ms: 0,
-      error: `configuracao_invalida: UPSTASH_REDIS_REST_URL=${url}`,
+      error: "configuracao_invalida: confira UPSTASH_REDIS_REST_URL e UPSTASH_REDIS_REST_TOKEN",
       reason: "configuracao_invalida",
       target: alvoDe(url),
     };
@@ -179,12 +185,22 @@ async function checkRedis(): Promise<Check> {
         target: alvoDe(url),
       };
     }
+    const pong: unknown = await withTimeout(res.json().catch(() => null));
+    if (typeof pong !== "object" || pong === null || !("result" in pong) || pong.result !== "PONG") {
+      return {
+        status: "down",
+        latency_ms: Date.now() - t0,
+        error: "invalid_ping_response",
+        reason: "resposta_inesperada",
+        target: alvoDe(url),
+      };
+    }
     return { status: "ok", latency_ms: Date.now() - t0, target: alvoDe(url) };
   } catch (e) {
     return {
       status: "down",
       latency_ms: Date.now() - t0,
-      error: e instanceof Error ? e.message : String(e),
+      error: "request_failed",
       reason: classificarFalhaDeAlcance(e),
       target: alvoDe(url),
     };
@@ -194,15 +210,19 @@ async function checkRedis(): Promise<Check> {
 async function checkWaha(): Promise<Check> {
   const t0 = Date.now();
   const base = env.WAHA_API_BASE_URL;
-  if (!base) {
+  const key = env.WAHA_API_KEY;
+  if (!base && !key) {
     return { status: "degraded", latency_ms: 0, error: "not_configured", reason: "nao_configurado" };
+  }
+  if (!base?.trim() || !key?.trim() || key.trim() === "dev_plaintext_change_me") {
+    return { status: "down", latency_ms: 0, error: "invalid_config", reason: "configuracao_invalida" };
   }
   try {
     // /api/sessions valida conectividade E autenticação num tiro só. O WAHA Core não
     // expõe /api/health (daria 404 mesmo autenticado).
     const res = await withTimeout(
       fetch(`${base.replace(/\/$/, "")}/api/sessions`, {
-        headers: env.WAHA_API_KEY ? { "X-Api-Key": env.WAHA_API_KEY } : {},
+        headers: { "X-Api-Key": key },
         cache: "no-store",
       }),
     );
@@ -220,7 +240,7 @@ async function checkWaha(): Promise<Check> {
     return {
       status: "down",
       latency_ms: Date.now() - t0,
-      error: e instanceof Error ? e.message : String(e),
+      error: "request_failed",
       reason: classificarFalhaDeAlcance(e),
       target: alvoDe(base),
     };
@@ -252,12 +272,11 @@ function segredoInternoConfere(req: NextRequest): boolean {
  * O `target` sempre foi escondido de propósito: esta rota é PÚBLICA (o `GET` não
  * exige nada; o segredo interno só destrava o `?verbose=1`), e o cabeçalho deste
  * arquivo chama o endereço de WAHA e Redis do cliente de superfície de ataque.
- * Mas o `error` saía cru ao lado dele, e ele carrega o mesmo endereço numa das
- * formas mais comuns de configuração errada.
+ * O `error` também já expôs esse endereço ao devolver mensagens cruas do fetch.
  *
  * Medido, com valores que passam pelo Zod de `lib/env.ts` — porque só
- * `NEXT_PUBLIC_SUPABASE_URL` é `.url()` (linha 69); `WAHA_API_BASE_URL` (140) e
- * `UPSTASH_REDIS_REST_URL` (155) são `required()` puro, sem validação de forma:
+ * `NEXT_PUBLIC_SUPABASE_URL` é `.url()`; os endereços opcionais WAHA/Redis
+ * ficam para os checks de cada integração, sem derrubar o Web no import:
  *
  *   "redis-interno.hostgator-vps.com"
  *     -> e.message = "Failed to parse URL from redis-interno.hostgator-vps.com"
@@ -269,15 +288,11 @@ function segredoInternoConfere(req: NextRequest): boolean {
  * catalogado nesta casa como ".env sem aspas". O `error` publicava pela porta
  * que a redação do `target` fechou.
  *
- * Contra-exemplo medido, para o escopo ficar honesto: um endereço com esquema
- * válido e host inalcançável devolve `"fetch failed"`, e o host mora em
- * `e.cause`, que esta rota nunca devolveu. O vazamento é da forma MALFORMADA,
- * não de toda falha — e é por isso que a troca é de redação, não de remoção.
- *
- * O que NÃO se perde: `reason` (`classificarFalhaDeAlcance`) continua saindo
- * inteiro, então quem monitora de fora segue distinguindo dns, recusa, tempo
- * esgotado e credencial recusada. E quem tem o segredo continua vendo o texto
- * original, porque `verbose=1` não passa por aqui.
+ * Hoje até o modo verboso recebe somente códigos estáveis, nomes de variáveis
+ * e `alvoDe(url)` sem userinfo/caminho/query/fragmento. Ter o segredo interno
+ * não autoriza expor outra credencial que apareceu numa URL ou erro externo.
+ * `reason` continua distinguindo DNS, recusa, timeout e credencial recusada;
+ * este filtro público remove também o alvo e os detalhes de configuração.
  */
 function semAlvo(check: Check): Check {
   const { target: _oculto, error, ...resto } = check;

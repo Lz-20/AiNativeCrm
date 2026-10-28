@@ -33,6 +33,8 @@ describe("configuração REST do Redis", () => {
   });
 
   it.each([
+    ["URL sem token", url, ""],
+    ["token sem URL", "", token],
     ["aspas do .env sobrando na URL", '"https://example.upstash.io"', token],
     ["aspas do .env sobrando no token", url, '"AXY-test-token"'],
     ["aspas simples no token", url, "'AXY-test-token'"],

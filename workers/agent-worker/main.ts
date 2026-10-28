@@ -103,6 +103,7 @@ import { seedPlatformPlaybook } from "@/lib/agent-engine/agent/playbook-seed";
 import { runCronLoop } from "@/lib/agent-engine/cron/scheduler";
 import { createPool } from "@/lib/agent-engine/db/pool";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { supabaseServerUrl } from "@/lib/supabase/urls";
 import {
   carregarComportamentoPorPool,
   pisoDoComportamentoDoMotor,
@@ -710,7 +711,7 @@ export async function main(): Promise<void> {
   const handlers = new Map<JobKind, JobHandler>();
   const turnDeps: FollowupTurnDeps = {
     crmCfg: crmEdgeConfigFromEnv({
-      SUPABASE_URL: env.NEXT_PUBLIC_SUPABASE_URL,
+      SUPABASE_URL: supabaseServerUrl(env),
       SUPABASE_SERVICE_ROLE_KEY: env.SUPABASE_SERVICE_ROLE_KEY,
     }),
     llmCfg: llmEdgeConfigFromEnv(env),

@@ -8,6 +8,7 @@
  */
 
 import { createBrowserClient } from "@supabase/ssr";
+import { assertPublicSupabaseKey } from "@/lib/supabase/public-key";
 
 let _client: ReturnType<typeof createBrowserClient> | null = null;
 
@@ -126,17 +127,19 @@ export function createClient() {
   // <PublicEnvScript/>. Vercel/dev: fallback pro process.env.NEXT_PUBLIC_*
   // (baked em build). Ler a URL do Supabase daqui é o que permite uma única
   // imagem servir qualquer projeto Supabase sem rebuild.
-  const runtime =
-    typeof window !== "undefined" ? window.__PUBLIC_ENV__ : undefined;
-  const url = runtime?.NEXT_PUBLIC_SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key =
-    runtime?.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const runtime = typeof window !== "undefined" ? window.__PUBLIC_ENV__ : undefined;
+  // A injeção é um par: completar só metade com o build mistura dois projetos.
+  const url = runtime ? runtime.NEXT_PUBLIC_SUPABASE_URL : process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = runtime
+    ? runtime.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    : process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!url || !key) {
     throw new Error(
       "[supabase/browser] NEXT_PUBLIC_SUPABASE_URL ou NEXT_PUBLIC_SUPABASE_ANON_KEY ausentes.",
     );
   }
+  assertPublicSupabaseKey(key);
 
   _client = createBrowserClient(url, key, {
     // D-01.01: cookie name canônico alinhado ao middleware/server.
@@ -145,11 +148,13 @@ export function createClient() {
       sameSite: "strict",
       path: "/",
     },
-    realtime: { accessToken: async () => {
-      const token = await tokenDoRealtime();
-      if (!token) throw new Error("Token de tempo real indisponível.");
-      return token;
-    } },
+    realtime: {
+      accessToken: async () => {
+        const token = await tokenDoRealtime();
+        if (!token) throw new Error("Token de tempo real indisponível.");
+        return token;
+      },
+    },
   });
   return _client;
 }

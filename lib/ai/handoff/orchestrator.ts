@@ -35,6 +35,7 @@ import { logger } from "@/lib/logger";
 import { moverLeadParaEtapaDeHandoff } from "@/lib/leads/handoff-stage-move";
 import { decidirElegibilidadeDaConversaViaSupabase } from "@/lib/ai/elegibilidade/consulta-supabase";
 import { ttlDaAutorizacaoMs } from "@/lib/ai/elegibilidade/gate";
+import { handoffQueueTopic } from "@/lib/realtime/topics";
 
 import { avisarLeadDoCrm, type DesfechoDoAvisoDoCrm } from "./aviso-ao-lead";
 import {
@@ -361,16 +362,19 @@ export async function triggerHandoff(
 
     // Step 4 — Realtime broadcast so the agent UI lights up immediately.
     try {
-      const channel = admin.channel(`org:${input.organizationId}:queue`);
-      await channel.send({
-        type: "broadcast",
-        event: "handoff_pending",
-        payload: {
-          conversation_id: input.conversationId,
-          reason: input.reason,
-        },
-      });
-      await admin.removeChannel(channel);
+      const channel = admin.channel(handoffQueueTopic(input.organizationId), { config: { private: true } });
+      try {
+        const delivery = await channel.send({
+          type: "broadcast",
+          event: "handoff_pending",
+          // Invalidate only: conversation visibility remains enforced by the
+          // subsequent RLS-scoped API query, not by a tenant-wide payload.
+          payload: {},
+        });
+        if (delivery !== "ok") throw new Error("Realtime delivery was not acknowledged");
+      } finally {
+        await admin.removeChannel(channel);
+      }
     } catch (err) {
       logger.warn("[handoff-orchestrator] realtime broadcast failed", {
         conversation_id: input.conversationId,

@@ -2,8 +2,8 @@
 # Entrypoint do pi-native-crm-scheduler: escreve o crontab e entrega o PID 1 ao crond.
 #
 # Por que gerar em runtime em vez de assar o arquivo na imagem: o INTERNAL_SECRET
-# só existe no .env do cliente, e o busybox crond não expande variáveis dentro da
-# linha do cron. Então a expansão acontece aqui, uma vez, no start.
+# só existe no ambiente do cliente. O header fica em arquivo 0600; o crond
+# registra comandos nos logs, portanto nenhuma linha do cron contém o segredo.
 #
 # O que MUDOU em relação ao `command:` inline do compose: não há mais
 # `apk add --no-cache curl tzdata` a cada start. curl e tzdata vêm na imagem. O
@@ -25,15 +25,16 @@ fi
 # encontrasse no código o definiria no `.env` e não veria efeito.
 APP_ORIGIN="http://app:3000"
 
-# O crond executa cada linha por `/bin/sh -c`, então o segredo é REAVALIADO pelo
-# shell na hora de disparar. Interpolá-lo cru dentro de aspas duplas fazia com
-# que um `$` no valor virasse expansão de variável (o header sairia truncado, e
-# todo cron responderia 401 em silêncio) e uma crase virasse substituição de
-# comando — execução arbitrária a cada minuto. Medido com um segredo hostil: a
-# versão com aspas duplas entregava `seg<saída-do-whoami>redo/~…`,
-# com o `whoami` EXECUTADO. Aqui o valor vai entre aspas SIMPLES, com as aspas
-# simples internas escapadas — dentro delas o sh não interpreta nada.
-SEGREDO_SEGURO="$(printf '%s' "$INTERNAL_SECRET" | sed "s/'/'\\\\''/g")"
+# CR/LF alteraria o formato do arquivo e permitiria injetar headers/opções.
+# Recusa antes de gravar qualquer arquivo, sem repetir o valor na mensagem.
+case "$INTERNAL_SECRET" in
+  *"$(printf '\r')"*|*'
+'*) echo "scheduler: INTERNAL_SECRET contém CR/LF inválido." >&2; exit 1 ;;
+esac
+
+# O parser do curl, e não o shell, lê este valor. Dentro de aspas duplas no
+# config só barra invertida e aspas precisam escape; $ e crase são literais.
+SEGREDO_CURL="$(printf '%s' "$INTERNAL_SECRET" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 
 # minuto|timeout|caminho — uma linha por cron. O caminho vai COMPLETO de
 # propósito: o literal `api/v1/cron/<rota>` é o contrato que
@@ -120,13 +121,26 @@ CRONS="
 # artefato executável novo desta entrega ficaria sem gate nenhum, que foi
 # exatamente o achado da revisão adversarial.
 DESTINO="${CRONTAB_PATH:-/etc/crontabs/root}"
+CURL_CONFIG="${CURL_CONFIG_PATH:-/run/crm-scheduler-curl.conf}"
+case "$CURL_CONFIG" in
+  *"$(printf '\r')"*|*'
+'*) echo "scheduler: caminho do config contém CR/LF inválido." >&2; exit 1 ;;
+esac
+# Só o caminho aparece no comando do cron. Aspas simples protegem metacaracteres
+# também quando o teste usa um diretório com espaços/apóstrofos.
+CONFIG_SEGURO="$(printf '%s' "$CURL_CONFIG" | sed "s/'/'\\\\''/g")"
 
 umask 077
+# Também protege um arquivo preexistente antes de substituir o seu conteúdo.
+[ ! -e "$CURL_CONFIG" ] || chmod 600 "$CURL_CONFIG"
+printf 'header = "Authorization: Bearer %s"\n' "$SEGREDO_CURL" > "$CURL_CONFIG"
+chmod 600 "$CURL_CONFIG"
 : > "$DESTINO"
 echo "$CRONS" | while IFS='|' read -r quando timeout rota; do
   [ -n "$rota" ] || continue
-  printf '%s curl -fsS -m%s -H '"'"'Authorization: Bearer %s'"'"' "%s/%s" >/dev/null 2>&1\n' \
-    "$quando" "$timeout" "$SEGREDO_SEGURO" "$APP_ORIGIN" "$rota" >> "$DESTINO"
+  printf '%s curl --config '"'"'%s'"'"' -fsS -m%s "%s/%s" >/dev/null 2>&1\n' \
+    "$quando" "$CONFIG_SEGURO" "$timeout" "$APP_ORIGIN" "$rota" >> "$DESTINO"
 done
 
+unset INTERNAL_SECRET SEGREDO_CURL
 exec crond -f -l 2

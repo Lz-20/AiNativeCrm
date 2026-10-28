@@ -2,6 +2,7 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookieSecure } from "@/lib/supabase/cookie-secure";
 import { NextResponse, type NextRequest } from "next/server";
 import { env } from "@/lib/env";
+import { supabaseServerUrl } from "@/lib/supabase/urls";
 import { isPublicPath } from "@/lib/auth/public-paths";
 import {
   verifyImpersonateCookieEdge,
@@ -34,7 +35,7 @@ export async function proxy(request: NextRequest) {
   }
 
   const supabase = createServerClient(
-    env.NEXT_PUBLIC_SUPABASE_URL,
+    supabaseServerUrl(env),
     env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     {
       cookies: {

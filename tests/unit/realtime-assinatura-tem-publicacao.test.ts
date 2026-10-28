@@ -43,13 +43,13 @@ import { describe, expect, it } from "vitest";
 const RAIZ = process.cwd();
 
 /**
- * As seis que já estavam assim. Cada uma é um realtime que não funciona hoje —
- * a lista é para elas NÃO crescerem, não para elas ficarem.
+ * Inventário histórico. Só uma busca dos consumidores atuais prova que uma
+ * assinatura ainda existe; a lista continua impedindo crescimento silencioso.
+ * conversation_notes foi publicada pelo apêndice 0411 e não é mais exceção.
  */
 const DIVIDA_CONHECIDA: Record<string, string> = {
   channel_sessions: "assinada por hooks de canal; entrou antes deste gate",
   contacts: "assinada pela ficha do contato; entrou antes deste gate",
-  conversation_notes: "assinada por hooks/inbox/useConversationNotes.ts; entrou antes deste gate",
   crm_pipelines: "assinada pela tela de funis; entrou antes deste gate",
   system_update_runs: "assinada pela tela de atualização; entrou antes deste gate",
   system_version: "assinada pela tela de atualização; entrou antes deste gate",
@@ -118,9 +118,9 @@ function assinadasNoCodigo(): Map<string, string[]> {
       if (statSync(completo).isDirectory()) varrer(completo);
       else if (/\.tsx?$/.test(entrada)) {
         const fonte = readFileSync(completo, "utf8");
-        // só conta quando há `postgres_changes` no mesmo arquivo: `table:` sozinho
-        // aparece em consulta comum e viraria falso positivo.
-        if (!fonte.includes("postgres_changes")) continue;
+        // Também lê consumidores do hook compartilhado. Ver apenas o nome do
+        // evento ignorava justamente conversation_notes (usa postgresChanges).
+        if (!fonte.includes("postgres_changes") && !fonte.includes("postgresChanges:")) continue;
         for (const m of fonte.matchAll(/table:\s*"([a-z_]+)"/g)) {
           const rel = path.relative(RAIZ, completo);
           achadas.set(m[1]!, [...(achadas.get(m[1]!) ?? []), rel]);

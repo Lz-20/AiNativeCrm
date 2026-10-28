@@ -9,15 +9,14 @@
  *
  * Redis CONFIGURADO e INALCANÇÁVEL é um estado real de produção — VPS com o
  * contêiner do Redis caído, rede entre serviços, credencial rotacionada. Até
- * aqui, `redis.set()` era chamado sem timeout e sem `catch`: o SDK da Upstash
+ * antes deste limite, `redis.set()` era chamado sem timeout e sem `catch`: o SDK da Upstash
  * tenta de novo com backoff e a promise simplesmente não volta.
  *
  * O efeito NÃO é "a indexação demora". `drainEventLog` marca a linha como
- * `processing` ANTES de chamar o handler, e não existe reaper que devolva
- * `processing` para `pending` no `event_log` (existe para `job_queue`, não para
- * este). Um handler que não retorna deixa o evento preso para SEMPRE: o
- * material nunca é preparado, nada aparece na tela, e nem tentar de novo
- * resolve — a linha não volta para a fila.
+ * `processing` ANTES de chamar o handler. Hoje `lib/event-log/drain.ts` já
+ * recupera eventos presos, com janela e limite de tentativas. O timeout aqui
+ * ainda evita segurar cada handler até essa recuperação: o material segue
+ * para preparo mesmo quando a coordenação Redis está indisponível.
  *
  * Medido na prova de tela desta frente: com o Redis do `.env.e2e` apontando
  * para uma porta sem ninguém escutando, o evento ficou `processing`,
@@ -30,6 +29,8 @@
 
 import { Redis } from "@upstash/redis";
 import { env } from "@/lib/env";
+import { logger } from "@/lib/logger";
+import { classificarFalhaDeAlcance } from "@/lib/net/alcance";
 import { validarConfigRedisRest } from "@/lib/redis-config";
 
 // ---------------------------------------------------------------------------
@@ -54,8 +55,12 @@ function getRedis(): Redis | null {
   const config = validarConfigRedisRest(url, token);
   if (!config.ok) {
     if (!_fallbackWarned) {
-      console.warn(
-        `[rag-debounce] Redis ${config.reason} — using in-memory fallback (NOT safe for multi-instance)`,
+      logger.warn(
+        "[rag-debounce] Redis indisponível — debounce em memória por processo; réplicas não compartilham a trava",
+        {
+          reason: config.reason,
+          acao: "Configure UPSTASH_REDIS_REST_URL e UPSTASH_REDIS_REST_TOKEN para coordenar a indexação entre processos.",
+        },
       );
       _fallbackWarned = true;
     }
@@ -111,8 +116,8 @@ export async function acquireDebounce(key: string, ttlSec: number): Promise<bool
     //
     // O timeout é NOSSO e não do SDK: o cliente da Upstash tenta de novo com
     // backoff e, sem corrida contra um relógio, a promise não volta. Ver o
-    // cabeçalho — handler que não retorna deixa o evento preso em `processing`
-    // para sempre.
+    // cabeçalho — handler que não retorna segura `processing` até a recuperação
+    // do dreno; perder a coordenação não precisa atrasar a preparação inteira.
     const result = await Promise.race([
       redis.set(key, "1", { nx: true, ex: ttlSec }),
       new Promise<never>((_, reject) =>
@@ -121,9 +126,12 @@ export async function acquireDebounce(key: string, ttlSec: number): Promise<bool
     ]);
     return result === "OK";
   } catch (err) {
-    console.warn(
-      "[rag-debounce] Redis não respondeu — seguindo SEM debounce (pode indexar duas vezes):",
-      err instanceof Error ? err.message : String(err),
+    logger.warn(
+      "[rag-debounce] Redis não respondeu — seguindo SEM debounce (pode indexar duas vezes)",
+      {
+        reason: classificarFalhaDeAlcance(err),
+        acao: "Confira o check redis em /api/v1/health e a configuração REST antes de ampliar o número de workers.",
+      },
     );
     return true;
   }

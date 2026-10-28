@@ -260,7 +260,18 @@ v_sb_key() {
         echo "Essa chave é de OUTRO projeto Supabase (${ref}), e a URL que você deu é do projeto $(sb_ref "$url"). Copie as duas do mesmo projeto."
         return 1
       fi;;
-    sb_publishable_*|sb_secret_*) : ;;  # formato novo do Supabase — a prova é a chamada HTTP
+    # Chaves novas não são JWT. O tipo também precisa bater com o campo:
+    # uma secret abre /auth/v1/settings e passar só pelo HTTP a publicaria.
+    sb_publishable_*)
+      if [ "$want" != "anon" ]; then
+        echo "Essa é uma chave pública publishable. Aqui preciso da chave secreta secret (ou service_role legada), em Settings > API Keys."
+        return 1
+      fi;;
+    sb_secret_*)
+      if [ "$want" != "service_role" ]; then
+        echo "Essa é uma chave secreta de backend. Neste campo público use a publishable (ou anon legada), em Settings > API Keys."
+        return 1
+      fi;;
     *) echo "Isso não parece uma chave do Supabase (elas começam com 'eyJ' ou 'sb_'). Pegue em Settings > API."; return 1;;
   esac
   [ -z "$url" ] && return 0

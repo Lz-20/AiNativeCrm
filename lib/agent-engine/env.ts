@@ -5,6 +5,7 @@
  * URL + service role para os handlers do app (envio).
  */
 import { z } from "zod";
+import { validSupabaseInternalUrl } from "@/lib/supabase/urls";
 
 import { RUNTIME_EVALUATION_MODE } from "@/lib/agent-runtime";
 
@@ -21,6 +22,12 @@ const envSchema = z.object({
   // Supabase API — os handlers do app (sendMessageHandler) exigem o client
   // service-role. Mesmos valores do .env.local do app.
   NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
+  SUPABASE_INTERNAL_URL: z
+    .string()
+    .trim()
+    .refine((value) => !value || validSupabaseInternalUrl(value), "SUPABASE_INTERNAL_URL inválida")
+    .optional()
+    .default(""),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   // Chave LLM de plataforma (fallback quando a org não tem BYOK em
   // ai_provider_credentials). Opcional no boot: sem ela e sem BYOK, o turno

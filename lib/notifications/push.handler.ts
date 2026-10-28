@@ -1,6 +1,7 @@
 import type { EventHandler, EventRow, HandlerResult } from "@/lib/event-log/dispatcher";
 import { marcaDaSaida } from "@/lib/branding/saida";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { storageUrlForDelivery } from "@/lib/supabase/storage-url";
 import { montarPayloadDeInbound, truncar } from "./push_payload";
 import { enviarPushAoUsuario, enviarPushDaOrg } from "./web_push";
 import { vapidPronto } from "./vapid";
@@ -53,7 +54,7 @@ async function handleInbound(row: EventRow): Promise<HandlerResult> {
       const { data: signed } = await admin.storage
         .from("whatsapp-media")
         .createSignedUrl(c.avatar_storage_path, 300);
-      icon = signed?.signedUrl ?? null;
+      icon = signed?.signedUrl ? storageUrlForDelivery(signed.signedUrl) : null;
     }
   }
   const payload = montarPayloadDeInbound({

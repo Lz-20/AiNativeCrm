@@ -1,0 +1,135 @@
+# Isolated ARM64 staging stack. Use only with this file, never merge prod compose.
+# Secrets: .env.staging (untracked); template: deploy/staging/.env.example.
+# Build recipes remain canonical: Dockerfile, Dockerfile.worker, Dockerfile.scheduler.
+name: ainativecrm-staging
+
+x-logging: &staging-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  app:
+    image: ainativecrm-staging-app:${STAGING_IMAGE_TAG:?Set STAGING_IMAGE_TAG in .env.staging}
+    platform: linux/arm64
+    pull_policy: never
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_VERSION: ${STAGING_IMAGE_TAG}
+    init: true
+    restart: unless-stopped
+    env_file: .env.staging
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+      NEXT_TELEMETRY_DISABLED: "1"
+      CRM_DEMO_MODE: "false"
+      AGENT_DISPATCH_CONSUMER: engine
+    ports:
+      - "127.0.0.1:3100:3000"
+    mem_limit: 1g
+    cpus: 1.5
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      # Liveness only. Dependency/readiness checks are a separate acceptance step.
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('net').connect(3000,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    stop_grace_period: 30s
+    logging: *staging-logging
+    networks: [staging, supabase]
+
+  worker:
+    # Starting this process immediately writes to the configured database.
+    profiles: [background]
+    image: ainativecrm-staging-worker:${STAGING_IMAGE_TAG:?Set STAGING_IMAGE_TAG in .env.staging}
+    platform: linux/arm64
+    pull_policy: never
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+      args:
+        APP_VERSION: ${STAGING_IMAGE_TAG}
+    init: true
+    restart: unless-stopped
+    env_file: .env.staging
+    environment:
+      NODE_ENV: production
+      HEALTH_PORT: "8787"
+      AGENT_DISPATCH_CONSUMER: engine
+    depends_on:
+      app:
+        condition: service_healthy
+    mem_limit: 768m
+    cpus: 1.0
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://127.0.0.1:8787/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    stop_grace_period: 45s
+    logging: *staging-logging
+    networks: [staging, supabase]
+
+  scheduler:
+    # Uses the repository's complete cron inventory; no host crontab/docker.sock.
+    profiles: [background]
+    image: ainativecrm-staging-scheduler:${STAGING_IMAGE_TAG:?Set STAGING_IMAGE_TAG in .env.staging}
+    platform: linux/arm64
+    pull_policy: never
+    build:
+      context: .
+      dockerfile: Dockerfile.scheduler
+      args:
+        APP_VERSION: ${STAGING_IMAGE_TAG}
+    restart: unless-stopped
+    environment:
+      TZ: UTC
+      INTERNAL_SECRET: ${INTERNAL_SECRET:?Set a staging-only INTERNAL_SECRET in .env.staging}
+    depends_on:
+      app:
+        condition: service_healthy
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep crond >/dev/null || exit 1"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    stop_grace_period: 15s
+    logging: *staging-logging
+    networks: [staging]
+
+networks:
+  staging:
+    driver: bridge
+    # CRM's own application/worker/scheduler network; no additional host ports.
+  supabase:
+    external: true
+    name: ainativecrm-staging-supabase_default

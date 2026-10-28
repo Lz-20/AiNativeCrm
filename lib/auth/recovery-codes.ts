@@ -31,6 +31,7 @@ export function generateRecoveryCodes(): string[] {
   return Array.from({ length: CODE_COUNT }, () => generateRecoveryCode());
 }
 
-export function hashRecoveryCode(code: string): Buffer {
-  return createHash("sha256").update(code).digest();
+/** Formato de entrada bytea do PostgREST, igual no INSERT e no filtro eq. */
+export function hashRecoveryCode(code: string): string {
+  return `\\x${createHash("sha256").update(code).digest("hex")}`;
 }

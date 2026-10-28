@@ -13,6 +13,7 @@ import type { NextRequest } from "next/server";
 import { ok, fail } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { storageUrlForDelivery } from "@/lib/supabase/storage-url";
 import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
@@ -58,9 +59,7 @@ export async function GET(
     .from("api_audit_log")
     .select("id, action, actor_user_id, resource_type, resource_id, metadata, created_at")
     .eq("organization_id", orgId)
-    .or(
-      `resource_id.eq.${id},metadata->>request_id.eq.${id}`,
-    )
+    .or(`resource_id.eq.${id},metadata->>request_id.eq.${id}`)
     .order("created_at", { ascending: true })
     .limit(50);
 
@@ -86,13 +85,10 @@ export async function GET(
       if (signErr) {
         console.error("[lgpd-request-detail] signed URL error", signErr.message);
       } else {
-        signed_pdf_url = signedData?.signedUrl ?? null;
+        signed_pdf_url = signedData?.signedUrl ? storageUrlForDelivery(signedData.signedUrl) : null;
       }
     }
   }
 
-  return ok(
-    { request, audit_trail, signed_pdf_url },
-    { requestId },
-  );
+  return ok({ request, audit_trail, signed_pdf_url }, { requestId });
 }

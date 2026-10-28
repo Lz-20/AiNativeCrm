@@ -7,6 +7,7 @@ import { apiClient } from "@/lib/api/client";
 import { showApiError } from "@/components/feedback/ApiErrorToast";
 import type { Conversation } from "@/lib/types/messaging";
 import type { ComandoDoBanco } from "@/lib/inbox/comando-da-conversa";
+import { handoffQueueTopic } from "@/lib/realtime/topics";
 
 export interface ContactSummary {
   id: string;
@@ -151,6 +152,15 @@ export function useConversationsRealtime(
   const onChange = useCallback(() => {
     qc.invalidateQueries({ queryKey: ["conversations"] });
   }, [qc]);
+
+  // Broadcast contains only an invalidation signal. The following API query
+  // still applies conversation visibility and tenant permissions to its data.
+  useRealtimeChannel({
+    name: orgId ? handoffQueueTopic(orgId) : "handoff-queue-disabled",
+    broadcast: { event: "handoff_pending" },
+    onChange,
+    enabled: !!orgId,
+  });
 
   // G4-01 (visibility_mode): a subscription postgres_changes HERDA a RLS de
   // SELECT de `conversations` — o Supabase Realtime avalia as policies do usuário

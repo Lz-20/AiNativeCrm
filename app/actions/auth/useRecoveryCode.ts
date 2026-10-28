@@ -9,6 +9,7 @@ import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { audit, isServiceRoleConfigured } from "@/lib/audit";
 import { hashRecoveryCode } from "@/lib/auth/recovery-codes";
+import { logger } from "@/lib/logger";
 
 export type UseRecoveryCodeResult =
   | { ok: false; error: "invalid_or_used" }
@@ -88,27 +89,48 @@ export async function useRecoveryCode(
     return { ok: false, error: "invalid_or_used" };
   }
 
-  // 3) Burn it.
-  const { error: updErr } = await admin
+  // 3) Consuma uma vez. Duas requisições podem ter lido a mesma linha: só a
+  // vencedora deste UPDATE condicional pode remover fatores e auditar sucesso.
+  const { data: consumed, error: updErr } = await admin
     .from("user_recovery_codes")
     .update({ used_at: new Date().toISOString(), used_ip: ip })
-    .eq("id", row.id);
-  if (updErr) {
+    .eq("id", row.id)
+    .eq("user_id", targetUser.id)
+    .eq("code_hash", codeHash)
+    .is("used_at", null)
+    .select("id")
+    .maybeSingle();
+  if (updErr || !consumed) {
     return { ok: false, error: "invalid_or_used" };
   }
 
   // 4) Delete ALL TOTP factors for the user so they re-enroll on next login.
   try {
-    const { data: factors } = await admin.auth.admin.mfa.listFactors({
+    const { data: factors, error: listError } = await admin.auth.admin.mfa.listFactors({
       userId: targetUser.id,
     });
-    for (const f of factors?.factors ?? []) {
-      await admin.auth.admin.mfa.deleteFactor({ userId: targetUser.id, id: f.id });
+    if (listError) throw listError;
+    if (!factors) throw new Error("MFA factors response missing");
+    for (const f of factors.factors) {
+      const { error: deleteError } = await admin.auth.admin.mfa.deleteFactor({ userId: targetUser.id, id: f.id });
+      if (deleteError) throw deleteError;
     }
-  } catch (err) {
-    console.error("[useRecoveryCode] failed to delete factors", err);
-    // Non-fatal: user still gets a recovery_used redirect; on next login the
-    // residual factor would block them, but seeded user has no factor anyway.
+  } catch {
+    logger.error("auth.recovery_factor_removal_failed", {
+      requestId,
+      error_code: "mfa_factor_cleanup_failed",
+    });
+    // O código já foi consumido: não o reabra depois de uma remoção parcial.
+    // Registre a falha e não anuncie sucesso enquanto houver fator residual.
+    await audit({
+      action: "auth.mfa_failed",
+      actorUserId: targetUser.id,
+      metadata: { stage: "recovery_factor_removal", recovery_code_consumed: true },
+      requestId,
+      ip,
+      userAgent,
+    });
+    return { ok: false, error: "service_unavailable" };
   }
 
   // 5) Audit (masked).

@@ -17,6 +17,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
+import { supabaseServerUrl } from "../lib/supabase/urls";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -36,7 +37,10 @@ function loadEnv(): Record<string, string> {
 
 const env = loadEnv();
 
-const SUPABASE_URL = env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_URL = supabaseServerUrl({
+  NEXT_PUBLIC_SUPABASE_URL: env.NEXT_PUBLIC_SUPABASE_URL ?? "",
+  SUPABASE_INTERNAL_URL: env.SUPABASE_INTERNAL_URL,
+});
 const SERVICE_ROLE = env.SUPABASE_SERVICE_ROLE_KEY;
 const OWNER_EMAIL = env.OWNER_EMAIL;
 const OWNER_PASSWORD = env.OWNER_PASSWORD;

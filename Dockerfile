@@ -111,7 +111,8 @@ RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
 COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=build --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=build --chown=nextjs:nodejs /app/public ./public
+COPY --chown=nextjs:nodejs docker/redacted-runtime.cjs ./docker/redacted-runtime.cjs
 USER nextjs
 EXPOSE 3000
 # server.js é o entrypoint gerado pelo output standalone.
-CMD ["node", "server.js"]
+CMD ["node", "docker/redacted-runtime.cjs", "--", "node", "server.js"]

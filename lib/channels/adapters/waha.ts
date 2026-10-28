@@ -112,9 +112,8 @@ export const wahaAdapter: ChannelAdapter = {
   /**
    * "digitando…" no aparelho do cliente, antes da 1ª bolha do turno da IA.
    *
-   * Transporte não configurado é NOOP, não erro — mesmo critério do `send`
-   * logo abaixo: numa instalação sem o container de pé o produto não pode
-   * parar por causa de um indicador decorativo.
+   * Transporte não configurado omite este indicador decorativo. O envio de
+   * mensagem abaixo exige transporte e devolve erro quando falta configuração.
    */
   async signalTyping(input: { sessionRef: string; recipient: string }): Promise<void> {
     const client = getWahaClient();
@@ -190,10 +189,8 @@ export const wahaAdapter: ChannelAdapter = {
 
   async send(envelope: OutboundEnvelope): Promise<{ externalId: string | null }> {
     const client = getWahaClient();
-    // Sem env de WAHA o comportamento atual é NOOP, não erro: a UI mostra o
-    // banner de "container não está no ar". Transformar em exceção mudaria o
-    // comportamento visível — proibido nas Fases 0–2.
-    if (!client) return { externalId: null };
+    // Quem chama diretamente também recebe a falha, nunca um recibo de envio vazio.
+    if (!client) throw new Error("waha_not_configured");
 
     const to = await resolveCanonicalCusChatId(client, envelope.sessionRef, envelope.to);
 

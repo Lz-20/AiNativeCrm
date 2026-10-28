@@ -74,10 +74,9 @@ describe('adapter WAHA', () => {
     expect(() => getAdapter('telegram')).toThrow(/unknown_channel_provider/);
   });
 
-  // `isConfigured` existe porque `send` devolvendo `{externalId:null}` colapsa
-  // dois desfechos que o handler trata diferente: "não tentei" (fica `queued`)
-  // e "tentei e a resposta não tinha id" (vira `sent`). Sem este pre-check, a
-  // primeira viraria `sent` sem ter saído — perda de mensagem, não refactor.
+  // `isConfigured` deixa o handler manter `queued` antes de tentar o envio.
+  // O adapter também recusa a chamada direta sem configuração; nenhum caminho
+  // devolve um recibo vazio só porque o transporte ainda não foi configurado.
   it('isConfigured é false sem env do canal', () => {
     vi.stubEnv('WAHA_API_BASE_URL', '');
     vi.stubEnv('WAHA_API_KEY', '');
@@ -103,7 +102,7 @@ describe('adapter WAHA', () => {
     });
   });
 
-  it('canal não configurado é NOOP, não erro — e nada sai pela rede', async () => {
+  it('canal não configurado recusa o envio — e nada sai pela rede', async () => {
     vi.stubEnv('WAHA_API_BASE_URL', '');
     vi.stubEnv('WAHA_API_KEY', '');
     const fetchMock = vi.fn();
@@ -117,7 +116,7 @@ describe('adapter WAHA', () => {
         kind: 'text',
         body: 'oi',
       }),
-    ).resolves.toEqual({ externalId: null });
+    ).rejects.toThrow('waha_not_configured');
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

@@ -21,6 +21,7 @@ vi.mock("@/lib/ai/elegibilidade/consulta-supabase", () => ({
 vi.mock("@/lib/logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 const updates: Array<Record<string, unknown>> = [];
+const broadcasts: Array<{ topic: string; options: unknown; message?: unknown }> = [];
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -42,7 +43,12 @@ vi.mock("@/lib/supabase/admin", () => ({
     return {
       from: () => chain,
       rpc: () => Promise.resolve({ error: null }),
-      channel: () => ({ send: () => Promise.resolve(), subscribe: () => ({}) }),
+      channel: (topic: string, options: unknown) => {
+        const sent: typeof broadcasts[number] = { topic, options };
+        broadcasts.push(sent);
+        return { send: (message: unknown) => { sent.message = message; return Promise.resolve("ok"); } };
+      },
+      removeChannel: () => Promise.resolve("ok"),
     };
   },
 }));
@@ -53,6 +59,7 @@ import { triggerHandoff } from "@/lib/ai/handoff/orchestrator";
 beforeEach(() => {
   vi.clearAllMocks();
   updates.length = 0;
+  broadcasts.length = 0;
 });
 
 describe("triggerHandoff · gate de elegibilidade", () => {
@@ -85,5 +92,9 @@ describe("triggerHandoff · gate de elegibilidade", () => {
     const r = await triggerHandoff({ conversationId: CONV, organizationId: ORG, reason: "requested_human", origem: "legado_pedido" });
     expect(avisarLeadDoCrm).toHaveBeenCalledOnce();
     expect(r.triggered).toBe(true);
+    expect(broadcasts).toEqual([{
+      topic: `org:${ORG}:queue`, options: { config: { private: true } },
+      message: { type: "broadcast", event: "handoff_pending", payload: {} },
+    }]);
   });
 });

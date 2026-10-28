@@ -16,6 +16,7 @@ ser fonte sem ninguém decidir isso.
 
 | arquivo | escopo |
 |---|---|
+| `storage-broadcast-isolados.architecture.json` | autorização de Storage e Broadcast por tenant, sinal de handoff sem conteúdo, listener compartilhado e refetch RLS; invariantes transacionais validados na cópia PostgreSQL isolada, entrega HTTP/WebSocket ainda pendente |
 | `chat-first-runtime-parity.architecture.json` | memória publicada e checkpoints com fronteira → Pi/Harness → observações → evidência reautorizada/Eval → Workbench e comando de envio |
 | `prospeccao-nativa.architecture.json` | busca comercial, fila gradual, configuração conversacional persistente, sandbox e assistente de voz opcional |
 | `pre-go-live-whatsapp.architecture.json` | modo de teste por canal (issue #573): configuração administrativa, gate compartilhado, releitura no envio e validação pelo Inbox |

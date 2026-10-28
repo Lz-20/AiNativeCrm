@@ -66,7 +66,9 @@ baixar_para() {
 # pelo motivo ERRADO — o `curl` recusava o protocolo do arquivo local antes de a validação
 # rodar, e tirar a validação inteira não deixava o teste vermelho. Medido, não suposto.
 catalogo_tem_forma() {
-  jq -e '.format_version == 1 and (.entries | type == "array") and (.origin | type == "string")' \
+  # jq 1.6 retorna zero para entrada vazia mesmo com -e. Slurp exige exatamente
+  # um documento antes de validar a forma, inclusive no piso do Debian.
+  jq -e -s 'length == 1 and (.[0] | .format_version == 1 and (.entries | type == "array") and (.origin | type == "string"))' \
     "$1" >/dev/null 2>&1
 }
 

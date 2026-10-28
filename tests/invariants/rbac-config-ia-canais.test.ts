@@ -200,7 +200,8 @@ const DIVIDA_RBAC_CONHECIDA = new Set([
   "promise_table_versions", "reentry_knob_pointers", "reentry_knob_versions",
   "reentry_template_pointers", "reentry_template_versions", "send_ledger",
   "skill_activations", "skill_pointers", "skill_versions", "storage_redaction_queue",
-  "user_recovery_codes",
+  // 0409: user_recovery_codes agora é server-only, sem policy de cliente.
+  // Par negativo/positivo em credenciais-rotas-e-auditoria-server-only.test.ts.
 ]);
 
 describe("0150 — a dívida de RBAC não cresce", () => {

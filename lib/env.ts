@@ -8,6 +8,8 @@
  */
 
 import { z } from "zod";
+import { isPrivilegedSupabaseKey } from "@/lib/supabase/public-key";
+import { validSupabaseInternalUrl } from "@/lib/supabase/urls";
 
 const isProd = process.env.NODE_ENV === "production";
 
@@ -24,8 +26,8 @@ const isProd = process.env.NODE_ENV === "production";
 const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
 
 /**
- * Em produção exigimos todas as vars críticas. Em dev, algumas são opcionais
- * pra permitir setup parcial (ex: dev sem WAHA quando trabalhando só na UI).
+ * Em produção exigimos as vars críticas do núcleo. Integrações opcionais
+ * continuam vazias até a configuração; a operação valida a disponibilidade.
  */
 const required = (name: string) =>
   isProd ? z.string().min(1, `${name} é obrigatória em produção`) : z.string().default("");
@@ -72,7 +74,20 @@ const schema = z.object({
 
   // Supabase — obrigatórias sempre (até pra dev local)
   NEXT_PUBLIC_SUPABASE_URL: requiredAlways("NEXT_PUBLIC_SUPABASE_URL").url(),
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: requiredAlways("NEXT_PUBLIC_SUPABASE_ANON_KEY"),
+  // Self-host: rede Docker do servidor; vazio mantém o endereço público.
+  SUPABASE_INTERNAL_URL: z
+    .string()
+    .trim()
+    .refine(
+      (value) => !value || validSupabaseInternalUrl(value),
+      "SUPABASE_INTERNAL_URL exige HTTP(S) sem credenciais, query ou fragmento",
+    )
+    .optional()
+    .default(""),
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: requiredAlways("NEXT_PUBLIC_SUPABASE_ANON_KEY").refine(
+    (key) => !isPrivilegedSupabaseKey(key),
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY exige uma chave pública, nunca uma credencial privilegiada",
+  ),
   SUPABASE_SERVICE_ROLE_KEY: requiredAlways("SUPABASE_SERVICE_ROLE_KEY"),
 
   // Cron / interno
@@ -151,10 +166,10 @@ const schema = z.object({
    */
   SUPABASE_DB_ADMIN_URL: z.string().optional().default(""),
 
-  // WAHA
-  WAHA_API_BASE_URL: required("WAHA_API_BASE_URL"),
-  WAHA_API_KEY: required("WAHA_API_KEY"),
-  WAHA_WEBHOOK_BASE_URL: required("WAHA_WEBHOOK_BASE_URL"),
+  // WAHA — opcional para o Web; operações do canal exigem configuração real.
+  WAHA_API_BASE_URL: z.string().optional().default(""),
+  WAHA_API_KEY: z.string().optional().default(""),
+  WAHA_WEBHOOK_BASE_URL: z.string().optional().default(""),
   // Segredo com que o WAHA assina os webhooks. O compose já o entrega ao
   // contêiner do WAHA; o app precisa dele para CONFERIR a assinatura — e não o
   // declarava aqui, então nunca teve como verificar nada.
@@ -181,9 +196,9 @@ const schema = z.object({
   // devolve 401 em toda chamada — por isso `getWacallsClient()` exige os dois.
   WACALLS_API_TOKEN: z.string().optional().default(""),
 
-  // Upstash Redis
-  UPSTASH_REDIS_REST_URL: required("UPSTASH_REDIS_REST_URL"),
-  UPSTASH_REDIS_REST_TOKEN: required("UPSTASH_REDIS_REST_TOKEN"),
+  // Redis REST — vazio usa o fallback por processo, sem coordenação distribuída.
+  UPSTASH_REDIS_REST_URL: z.string().optional().default(""),
+  UPSTASH_REDIS_REST_TOKEN: z.string().optional().default(""),
 
   // AI providers — env-gated. Worker no-ops with skip="ai_gateway_key_missing"
   // when AI_GATEWAY_API_KEY is absent, so production boot must not be fatal.

@@ -788,7 +788,23 @@ create table public.user_recovery_codes (
 create unique index idx_recovery_unique on public.user_recovery_codes(user_id, code_hash);
 ```
 
-**Uso**: `POST /api/v1/auth/recovery { email, code }` → valida hash, marca `used_at`, emite token de single-sign + força regeneração de TOTP.
+**Autoridade (migration 0409):** a tabela tem RLS e acesso direto reservado a
+`service_role`; `anon` e `authenticated`, inclusive AAL2, não leem nem gravam
+hashes. `confirmMfaEnroll` persiste os códigos no servidor depois do sucesso de
+`mfa.verify`. `regenerateRecoveryCodes` exige o usuário autenticado e o AAL2 da
+sessão atual antes de usar o admin client; ter um fator cadastrado não basta.
+O hash SHA-256 atravessa o PostgREST como texto hexadecimal `\\x…` de `bytea`,
+preservando os bytes já armazenados.
+
+**Uso:** a Server Action `app/actions/auth/useRecoveryCode.ts` recebe `{ email,
+code }`, resolve o usuário e consome o hash com `UPDATE` condicionado a usuário,
+hash e `used_at IS NULL`. Só a requisição que recebe a linha consumida remove os
+fatores TOTP, registra `auth.recovery_code_used` e redireciona ao login para novo
+cadastro do autenticador. Falha de persistência não devolve códigos como se
+estivessem disponíveis; falha ou disputa no consumo não remove fatores. Se a API
+de Auth falha depois do consumo, o código permanece consumido, a ação devolve
+`service_unavailable` e registra `auth.mfa_failed` com a etapa; não anuncia
+recuperação concluída nem reabre um código após remoção parcial de fatores.
 
 ---
 
@@ -1762,6 +1778,7 @@ select count(*) from public.fn_user_org_ids();
 ```bash
 # Supabase
 NEXT_PUBLIC_SUPABASE_URL=
+SUPABASE_INTERNAL_URL=          # opcional; API Docker usada só por servidor/worker
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 
@@ -1787,6 +1804,18 @@ RESEND_API_KEY=
 # Auth
 AUTH_COOKIE_DOMAIN=.pi-native.com
 ```
+
+Em self-host com rede privada, `NEXT_PUBLIC_SUPABASE_URL` continua sendo o endereço
+acessível pelo navegador. `SUPABASE_INTERNAL_URL`, quando preenchida, atende os
+clients server/admin, proxy, health check, bootstrap e worker sem expor a porta do
+banco. URLs assinadas pelo Storage usam o transporte interno para a assinatura e
+voltam ao endereço público antes de redirects, notificações ou entrega externa;
+path e token permanecem intactos. A configuração interna nunca entra no script de
+ambiente público. Vazia, preserva a topologia de URL única.
+
+Num teste por túnel SSH, `localhost:8000` serve apenas o navegador com o túnel
+ativo; não torna arquivos acessíveis a um provedor externo de mensagens ou e-mail.
+Mapa e limites: `docs/architecture/supabase-enderecos.md`.
 
 ## 15. Apêndice B — Referências cruzadas
 
