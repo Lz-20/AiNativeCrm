@@ -308,7 +308,7 @@ describe("o preâmbulo do CI não come o orçamento dos testes", () => {
       .join("\n");
 
     expect(a, "cache do npm ausente: sem ele o self-installer volta a ir ao registry").toMatch(
-      /uses:\s*actions\/cache@v\d[\s\S]*?path:\s*~\/\.npm/,
+      /uses:\s*actions\/cache@(?:v\d+|[0-9a-f]{40})(?:\s|$)[\s\S]*?path:\s*~\/\.npm/,
     );
     expect(a, "sem prefer-offline o cache não é usado: npm revalida no registry").toMatch(
       /npm_config_prefer_offline:\s*['"]?true/,

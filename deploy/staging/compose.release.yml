@@ -1,0 +1,94 @@
+# Operator-installed, root-owned template. Candidate commits cannot replace it.
+# No build contexts, database services, host mounts, or new Docker resources.
+name: ainativecrm-staging
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  app:
+    image: ${APP_IMAGE:?Immutable app image required}
+    platform: linux/arm64
+    pull_policy: never
+    init: true
+    restart: unless-stopped
+    env_file: /home/ubuntu/apps/AiNativeCrm-staging/final-20261027/private/app.env
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+      NEXT_TELEMETRY_DISABLED: "1"
+      CRM_DEMO_MODE: "false"
+      AGENT_DISPATCH_CONSUMER: engine
+    ports:
+      - "127.0.0.1:3100:3000"
+    mem_limit: 1g
+    cpus: 1.5
+    pids_limit: 256
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('net').connect(3000,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    stop_grace_period: 30s
+    logging: *logging
+    networks: [staging, supabase]
+
+  worker:
+    image: ${WORKER_IMAGE:?Immutable worker image required}
+    platform: linux/arm64
+    pull_policy: never
+    init: true
+    restart: unless-stopped
+    env_file: /home/ubuntu/apps/AiNativeCrm-staging/final-20261027/private/app.env
+    environment:
+      NODE_ENV: production
+      HEALTH_PORT: "8787"
+      AGENT_DISPATCH_CONSUMER: engine
+    mem_limit: 768m
+    cpus: 1.0
+    pids_limit: 256
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:8787/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    stop_grace_period: 45s
+    logging: *logging
+    networks: [staging, supabase]
+
+  scheduler:
+    image: ${SCHEDULER_IMAGE:?Immutable scheduler image required}
+    platform: linux/arm64
+    pull_policy: never
+    restart: unless-stopped
+    environment:
+      TZ: UTC
+      INTERNAL_SECRET: ${INTERNAL_SECRET:?Use protected server environment}
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep crond >/dev/null || exit 1"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    stop_grace_period: 15s
+    logging: *logging
+    networks: [staging]
+
+networks:
+  staging:
+    external: true
+    name: ainativecrm-staging_staging
+  supabase:
+    external: true
+    name: ainativecrm-staging-supabase_default

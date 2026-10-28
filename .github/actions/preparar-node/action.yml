@@ -75,18 +75,18 @@ runs:
         echo "versao=$versao" >> "$GITHUB_OUTPUT"
 
     - name: Cache do npm (é o que tira o registry do caminho crítico)
-      uses: actions/cache@v4
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: ~/.npm
         key: npm-cache-pnpm-${{ runner.os }}-${{ steps.pino.outputs.versao }}
 
-    - uses: pnpm/action-setup@v6
+    - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       env:
         npm_config_prefer_offline: 'true'
         npm_config_audit: 'false'
         npm_config_fund: 'false'
 
-    - uses: actions/setup-node@v7
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
       with:
         # 22 como o `.nvmrc` e o `engines` (>=22). Verificar numa versão que o
         # produto não suporta esconde quebra ou inventa falha.

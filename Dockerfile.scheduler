@@ -5,7 +5,7 @@
 # porque instalar pacote em todo start amarra a recuperação do cron do cliente à
 # internet da VPS e ao mirror do Alpine — dependência de rede num caminho que
 # deveria ser offline. Doutrina: docs/doctrine/packaging.md, invariante 1.
-FROM alpine:3.20
+FROM alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
 
 LABEL org.opencontainers.image.source="https://github.com/luckiest-draw/AiNativeCrm" \
       org.opencontainers.image.title="Pi Native CRM scheduler" \

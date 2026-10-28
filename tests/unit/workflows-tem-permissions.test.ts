@@ -52,6 +52,8 @@ const DIR = join(process.cwd(), ".github/workflows");
  * acrescente, e acrescentar sem razão é visível em code review.
  */
 const ESCRITA_JUSTIFICADA: Record<string, string> = {
+  "staging-release.yml::packages: write":
+    "publica somente app, worker e scheduler ARM64 deste staging no GHCR; o deploy usa outro job sem escrita no registry",
   "publish-image.yml::packages: write":
     "publica a imagem do app no GHCR — é o artefato que o self-hoster instala",
   "deploy-vps-develop.yml::packages: write":

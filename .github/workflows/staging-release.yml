@@ -1,0 +1,239 @@
+name: staging-release
+
+# This fork's staging release is separate from the upstream manual release flow.
+# Keep BOTH the repository variable and the VPS policy disabled until acceptance.
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Build only, deploy this main commit, inspect status, or restore the previous release
+        type: choice
+        required: true
+        default: build
+        options: [build, deploy, status, rollback]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    if: >-
+      github.repository == 'Lz-20/AiNativeCrm' && github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' || vars.STAGING_AUTO_DEPLOY == 'true')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      operation: ${{ steps.source.outputs.operation }}
+      schema: ${{ steps.source.outputs.schema }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Bind the release to this exact main commit
+        id: source
+        env:
+          OPERATION: ${{ github.event_name == 'push' && 'deploy' || inputs.operation }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          case "$OPERATION" in build|deploy|status|rollback) ;; *) exit 1 ;; esac
+          echo "operation=$OPERATION" >> "$GITHUB_OUTPUT"
+          echo "schema=$(python3 scripts/staging-ci.py schema-fingerprint "$GITHUB_SHA")" >> "$GITHUB_OUTPUT"
+
+  ci-checks:
+    needs: prepare
+    if: needs.prepare.outputs.operation == 'build' || needs.prepare.outputs.operation == 'deploy'
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/ci.yml
+
+  build-check:
+    needs: prepare
+    if: needs.prepare.outputs.operation == 'build' || needs.prepare.outputs.operation == 'deploy'
+    uses: ./.github/workflows/perf.yml
+
+  e2e-check:
+    needs: prepare
+    if: needs.prepare.outputs.operation == 'build' || needs.prepare.outputs.operation == 'deploy'
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/e2e.yml
+
+  images:
+    needs: prepare
+    if: needs.prepare.outputs.operation == 'build' || needs.prepare.outputs.operation == 'deploy'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      # Only these native ARM builders publish the three staging images.
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: app
+            dockerfile: Dockerfile
+          - service: worker
+            dockerfile: Dockerfile.worker
+          - service: scheduler
+            dockerfile: Dockerfile.scheduler
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Verify native architecture
+        run: test "$(uname -m)" = aarch64
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish one immutable source version
+        id: image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/arm64
+          push: true
+          tags: ghcr.io/lz-20/ainativecrm-${{ matrix.service }}:${{ github.sha }}
+          build-args: |
+            APP_VERSION=${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/Lz-20/AiNativeCrm
+            org.opencontainers.image.revision=${{ github.sha }}
+            io.ainativecrm.schema-sha256=${{ needs.prepare.outputs.schema }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=staging-arm64-${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=staging-arm64-${{ matrix.service }}
+      - name: Record the registry digest, commit and schema together
+        env:
+          SERVICE: ${{ matrix.service }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+          SCHEMA: ${{ needs.prepare.outputs.schema }}
+        run: >-
+          python3 scripts/staging-ci.py image-record --sha "$GITHUB_SHA"
+          --schema "$SCHEMA" --service "$SERVICE" --digest "$DIGEST" --output "$SERVICE.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: staging-image-${{ matrix.service }}
+          path: ${{ matrix.service }}.json
+          if-no-files-found: error
+          retention-days: 30
+
+  manifest:
+    # A published image alone is not an accepted release. These are the existing
+    # real type/lint/unit/shell/DB/build/browser gates, without production secrets.
+    needs: [prepare, images, ci-checks, build-check, e2e-check]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          pattern: staging-image-*
+          path: image-records
+          merge-multiple: true
+      - name: Assemble the verified release request
+        env:
+          SCHEMA: ${{ needs.prepare.outputs.schema }}
+          TRIGGER: ${{ github.event_name }}
+        run: >-
+          python3 scripts/staging-ci.py manifest --directory image-records
+          --sha "$GITHUB_SHA" --schema "$SCHEMA" --trigger "$TRIGGER" --output release.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: staging-release-${{ github.sha }}
+          path: release.json
+          if-no-files-found: error
+          retention-days: 90
+
+  deploy:
+    needs: [prepare, manifest]
+    if: needs.prepare.outputs.operation == 'deploy'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    environment: staging
+    concurrency:
+      group: ainativecrm-staging-vps
+      cancel-in-progress: false
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+      VPS_PORT: ${{ vars.VPS_PORT || '22' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: staging-release-${{ github.sha }}
+      - name: Check the last accepted schema and the server deployment gate
+        env:
+          SCHEMA: ${{ needs.prepare.outputs.schema }}
+          TRIGGER: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          python3 scripts/staging-ci.py request status --output status-request.json
+          python3 scripts/staging-ci.py ssh-request --request status-request.json --output status-before.json
+          python3 scripts/staging-ci.py check-status --status status-before.json --schema "$SCHEMA" --trigger "$TRIGGER"
+      - name: Deploy only app, worker and scheduler through the restricted entry
+        run: |
+          set -euo pipefail
+          python3 scripts/staging-ci.py ssh-request --request release.json --output deployment.json
+          python3 scripts/staging-ci.py ssh-request --request status-request.json --output status-after.json
+          python3 scripts/staging-ci.py verify-release --request release.json --status status-after.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
+        with:
+          name: staging-result-${{ github.run_id }}
+          path: |
+            status-before.json
+            status-after.json
+            deployment.json
+          if-no-files-found: ignore
+          retention-days: 90
+
+  operate:
+    needs: prepare
+    if: needs.prepare.outputs.operation == 'status' || needs.prepare.outputs.operation == 'rollback'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    environment: staging
+    concurrency:
+      group: ainativecrm-staging-vps
+      cancel-in-progress: false
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+      VPS_PORT: ${{ vars.VPS_PORT || '22' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Run the fixed operation without a general shell
+        env:
+          OPERATION: ${{ needs.prepare.outputs.operation }}
+        run: |
+          set -euo pipefail
+          python3 scripts/staging-ci.py request "$OPERATION" --output operation.json
+          python3 scripts/staging-ci.py ssh-request --request operation.json --output operation-result.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: staging-operation-${{ github.run_id }}
+          path: operation-result.json
+          if-no-files-found: error
+          retention-days: 90

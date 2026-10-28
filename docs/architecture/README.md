@@ -16,6 +16,7 @@ ser fonte sem ninguém decidir isso.
 
 | arquivo | escopo |
 |---|---|
+| `staging-cicd.architecture.json` | infraestrutura de staging: CI e ARM64 → manifest/digests → SSH restrito → backup restaurável → três serviços → probes/diário → operador e rollback; auto deploy exige aceitação real |
 | `storage-broadcast-isolados.architecture.json` | autorização de Storage e Broadcast por tenant, sinal de handoff sem conteúdo, listener compartilhado e refetch RLS; invariantes transacionais validados na cópia PostgreSQL isolada, entrega HTTP/WebSocket ainda pendente |
 | `chat-first-runtime-parity.architecture.json` | memória publicada e checkpoints com fronteira → Pi/Harness → observações → evidência reautorizada/Eval → Workbench e comando de envio |
 | `prospeccao-nativa.architecture.json` | busca comercial, fila gradual, configuração conversacional persistente, sandbox e assistente de voz opcional |

@@ -32,6 +32,7 @@ name: e2e
 # job inteiro e reportou VERDE com o `supabase start` quebrado e zero teste
 # executado. Verde que não distingue "passou" de "nem rodou" é pior que vermelho.
 on:
+  workflow_call:
   pull_request:
     branches: [main]
   push:
@@ -83,7 +84,7 @@ jobs:
     outputs:
       e2e: ${{ steps.alcance.outputs.e2e }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         if: github.event_name == 'pull_request'
         with:
           sparse-checkout: scripts/pr-alcanca-o-e2e.sh
@@ -1174,7 +1175,7 @@ jobs:
           } >> "$GITHUB_ENV"
           echo "parte ${{ matrix.parte }}: relógio do job iniciado em $(date -u +%H:%M:%S) UTC"
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # ─── Serviços da parte 4 — a spec de VPS fresca (issue #179) ──────────
       #
@@ -1283,7 +1284,7 @@ jobs:
       # A catraca que reprova `latest`/faixa está em
       # tests/unit/workflows-pinam-o-supabase-cli.test.ts, e roda no job
       # `verify` (o `pnpm test:unit` do ci.yml).
-      - uses: supabase/setup-cli@v3
+      - uses: supabase/setup-cli@45a513f8c64c0bc8e0e3dfe572b5c95be85f6359 # v3
         with:
           version: 2.117.0
 
@@ -1802,7 +1803,7 @@ jobs:
           # ver o comentário do passo de build: vazio NÃO desliga.
           SENTRY_DSN: "off"
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: failure()
         with:
           name: playwright-report-parte-${{ matrix.parte }}
@@ -1932,7 +1933,7 @@ jobs:
             [ "$PARTES" = "success" ]
           fi
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         if: always()
 
       - name: Declarar o que este job ainda NÃO cobre

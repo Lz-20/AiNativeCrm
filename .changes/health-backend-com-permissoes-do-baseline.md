@@ -1,1 +1,7 @@
+---
+impacto: nada_mudou
+secao: corrigido
+titulo: A verificação de saúde respeita as permissões do banco instalado
+---
+
 O health check consulta o schema do CRM com uma leitura HEAD limitada e a credencial de backend: os helpers de RLS do baseline recusam acesso anônimo. Falhas de autenticação continuam retornando 503. A sonda não retorna linhas, não segue redirects com credenciais e distingue secret key de service_role JWT; os testes de autorização de usuários continuam separados da disponibilidade do backend.

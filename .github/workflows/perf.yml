@@ -1,6 +1,7 @@
 name: perf
 
 on:
+  workflow_call:
   pull_request:
     branches: [main]
   push:
@@ -27,7 +28,7 @@ jobs:
       group: ${{ github.workflow }}-build-and-size-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - uses: ./.github/actions/preparar-node
         # O teto do preâmbulo mora aqui porque passo de composite action não

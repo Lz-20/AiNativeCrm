@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "title": "Publicação ARM64 controlada do staging",
+  "description": "Destino: infraestrutura opcional do fork. O mapa descreve o fluxo implementado; ativação automática exige evidência real de backup restaurável, publicação manual e retorno após falha. O estado operacional vem dos runs e do diário protegido, não deste mapa.",
+  "lanes": [
+    { "id": "operator", "label": "Operador e revisão" },
+    { "id": "github", "label": "GitHub Actions e GHCR" },
+    { "id": "vps", "label": "Controlador protegido na VPS" },
+    { "id": "runtime", "label": "Ambiente staging existente" }
+  ],
+  "nodes": [
+    { "id": "operator", "lane": "operator", "label": "Operador", "sublabel": "Aprova schema e entrada root; verifica evidência antes de ativar" },
+    { "id": "workflow", "lane": "github", "label": "staging-release.yml", "sublabel": "build / deploy / status / rollback; SHA do evento main" },
+    { "id": "checks", "lane": "github", "label": "ci + perf + e2e", "sublabel": "Gates existentes e testes reais do protocolo, engine e backup" },
+    { "id": "builder", "lane": "github", "label": "ubuntu-24.04-arm", "sublabel": "Três Dockerfiles; APP_VERSION público, sem segredos do servidor" },
+    { "id": "registry", "lane": "github", "label": "GHCR: app / worker / scheduler", "sublabel": "Commit SHA, digest e labels de origem/schema" },
+    { "id": "manifest", "lane": "github", "label": "release.json", "sublabel": "Vincula os três digests ao mesmo SHA e schema" },
+    { "id": "ssh", "lane": "vps", "label": "SSH forced command", "sublabel": "Chave dedicada, host key conferida, JSON stdin, sem shell genérico" },
+    { "id": "engine", "lane": "vps", "label": "engine.py instalado por root", "sublabel": "Main/ancestralidade, schema, imagens, lock e Compose fixo" },
+    { "id": "backup", "lane": "vps", "label": "backup_verify.py", "sublabel": "Leitura do staging; restauração isolada e atestado novo antes da troca" },
+    { "id": "state", "lane": "vps", "label": "Estado e diário 0600", "sublabel": "current / previous / pending; SHA, digests e resultado" },
+    { "id": "controls", "lane": "vps", "label": "Pause e auto_deploy_enabled", "sublabel": "Decisão do operador; status e rollback permanecem disponíveis" },
+    { "id": "environment", "lane": "runtime", "label": "app.env protegido", "sublabel": "Permanece na VPS; público filtrado em runtime, segredos no servidor" },
+    { "id": "services", "lane": "runtime", "label": "app → worker → scheduler", "sublabel": "Somente três containers; Web 127.0.0.1:3100" },
+    { "id": "probes", "lane": "vps", "label": "Readiness e API de usuário comum", "sublabel": "Login temporário, GETs CRM, logout, identidade e fronteiras" },
+    { "id": "supabase", "lane": "runtime", "label": "Supabase existente", "sublabel": "Dados e volumes preservados; nenhuma migration automática" },
+    { "id": "existing", "lane": "runtime", "label": "3X-UI / WireGuard / 1Panel", "sublabel": "Estado, identidade e portas comparados antes/depois" }
+  ],
+  "edges": [
+    { "id": "operator-dispatch", "from": "operator", "to": "workflow" },
+    { "id": "workflow-checks", "from": "workflow", "to": "checks" },
+    { "id": "workflow-builder", "from": "workflow", "to": "builder" },
+    { "id": "builder-registry", "from": "builder", "to": "registry" },
+    { "id": "builder-digest", "from": "builder", "to": "manifest" },
+    { "id": "checks-manifest", "from": "checks", "to": "manifest" },
+    { "id": "manifest-ssh", "from": "manifest", "to": "ssh" },
+    { "id": "ssh-engine", "from": "ssh", "to": "engine" },
+    { "id": "registry-engine", "from": "registry", "to": "engine" },
+    { "id": "engine-backup", "from": "engine", "to": "backup" },
+    { "id": "supabase-backup", "from": "supabase", "to": "backup" },
+    { "id": "backup-proof", "from": "backup", "to": "state" },
+    { "id": "state-engine", "from": "state", "to": "engine" },
+    { "id": "engine-services", "from": "engine", "to": "services" },
+    { "id": "operator-environment", "from": "operator", "to": "environment" },
+    { "id": "environment-services", "from": "environment", "to": "services" },
+    { "id": "services-supabase", "from": "services", "to": "supabase" },
+    { "id": "services-probes", "from": "services", "to": "probes" },
+    { "id": "supabase-probes", "from": "supabase", "to": "probes" },
+    { "id": "probes-engine", "from": "probes", "to": "engine" },
+    { "id": "engine-journal", "from": "engine", "to": "state" },
+    { "id": "journal-operator", "from": "state", "to": "operator" },
+    { "id": "operator-controls", "from": "operator", "to": "controls" },
+    { "id": "controls-engine", "from": "controls", "to": "engine" },
+    { "id": "engine-boundary", "from": "engine", "to": "existing" },
+    { "id": "boundary-probes", "from": "existing", "to": "probes" },
+    { "id": "result-workflow", "from": "engine", "to": "workflow" }
+  ],
+  "mainPath": ["operator", "workflow", "checks", "manifest", "ssh", "engine", "services", "probes", "state", "operator"],
+  "contracts": {
+    "status": "Implementação e testes locais não substituem a primeira execução real; auto deploy nasce desligado.",
+    "schema": "Fingerprint completo e histórico entre a última versão aceita e a candidata; mudança requer revisão humana, nunca SQL automático.",
+    "non_links": [
+      "Actions não recebe app.env, senha de banco, service_role ou credencial do usuário de probe.",
+      "Código candidato não substitui engine, hook de backup, Compose ou sudoers instalados por root.",
+      "Rollback troca três imagens; não restaura banco nem apaga volumes.",
+      "O workflow não abre portas e não controla 3X-UI, WireGuard ou 1Panel."
+    ]
+  },
+  "living_system": {
+    "connected": "Workflow e registry entregam artefatos ao engine; probes e diário devolvem o resultado ao operador.",
+    "human_continuity": "Falhas mantêm evidência e entram em revisão; schema é decisão humana; status/rollback continuam disponíveis durante pause.",
+    "visible_log": "Actions artifacts e deployments.jsonl registram SHA, digests, estágio e resultado sem transportar segredos.",
+    "next_step": "Falha de candidato tenta a versão anterior; falha de rollback preserva pending e bloqueia novos deploys até recuperação explícita.",
+    "purpose": "Cada digest identifica a imagem executada; schema/catalog protegem compatibilidade; prova restaurável autoriza a troca.",
+    "configuration_surface": "Settings/Environment staging, variable STAGING_AUTO_DEPLOY e controles root; entrada documentada no runbook, sem nova tela CRM.",
+    "closed_loop": "Probes reprovados acionam retorno dos três serviços; diário informa o operador que pausa, corrige e dispara um novo SHA verificado."
+  }
+}
