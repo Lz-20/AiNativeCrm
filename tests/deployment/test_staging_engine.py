@@ -38,7 +38,7 @@ class FakeRuntime:
         return {'restore_verified':True}
     def boundary(self):return {'protected':'same','supabase':'same','ports':'same','env':'same'}
     def verify_current(self,state,recovery=False):self.calls.append(('current',recovery))
-    def prepare_images(self,release):
+    def prepare_images(self,release,use_cached=False):
         self.calls.append(('prepare',release['kind']))
         return {name:'sha256:'+char*64 for name,char in zip(('app','worker','scheduler'),'789')} if release['kind']=='git' else release['image_ids']
     def update(self,service,release):
@@ -225,5 +225,98 @@ class EngineTests(unittest.TestCase):
         runtime.verify_boundary(before)
         after['listeners'].append(('tcp','0.0.0.0:3100'))
         with self.assertRaises(engine.Failure):runtime.verify_boundary(before)
+
+    def test_readiness_accepts_actual_ok_wrapper_with_optional_modules_degraded(self):
+        runtime=object.__new__(engine.RootRuntime)
+        runtime.http_request=lambda _: {'data':{'status':'degraded','version':'final-20261027-r4',
+            'checks':{'supabase':{'status':'ok','latency_ms':5},
+                      'redis':{'status':'degraded','reason':'nao_configurado'},
+                      'waha':{'status':'degraded','reason':'nao_configurado'}}}}
+        self.assertEqual(runtime.readiness(),{'http_status':200,'supabase':'ok','status':'degraded'})
+
+    def test_readiness_accepts_actual_healthy_enum_when_all_dependencies_are_ready(self):
+        runtime=object.__new__(engine.RootRuntime)
+        runtime.http_request=lambda _: {'data':{'status':'healthy','checks':{
+            'supabase':{'status':'ok'},'redis':{'status':'ok'},'waha':{'status':'ok'}}}}
+        self.assertEqual(runtime.readiness()['status'],'healthy')
+
+    def test_readiness_rejects_http_200_errors_invalid_shapes_and_failed_database(self):
+        runtime=object.__new__(engine.RootRuntime)
+        invalid=[None,[],{'error':{'code':'internal_error'}},
+            {'status':'ok','checks':{'supabase':{'status':'ok'}}},
+            {'data':[]},{'data':{'status':'ok','checks':[]}},
+            {'data':{'status':'ok','checks':{'supabase':'ok'}}},
+            {'data':{'status':'unknown','checks':{'supabase':{'status':'ok'}}}},
+            {'data':{'status':'ok','checks':{'supabase':{'status':'ok'}}}},
+            {'data':{'status':'ok','checks':{'supabase':{'status':'ok'}}},'error':{}},
+            *({'data':{'status':'degraded','checks':{'supabase':{'status':status}}}} for status in ('degraded','error','unknown',None))]
+        for value in invalid:
+            runtime.http_request=lambda _,result=value:result
+            with self.subTest(value=value),self.assertRaises(engine.Failure):runtime.readiness()
+
+    def test_cached_git_rollback_succeeds_when_registry_fails_after_candidate_update(self):
+        prior=engine.git_release(REQUEST);prior['image_ids']=dict(LEGACY['image_ids'])
+        candidate={**REQUEST,'sha':'c'*40,'images':{name:'sha256:'+char*64 for name,char in zip(engine.SERVICES,'789')}}
+        upcoming=engine.git_release(candidate)
+        class NetworkRuntime(FakeRuntime):
+            def __init__(self):
+                super().__init__();self.state['current']=copy.deepcopy(prior);self.offline=False;self.rows={};self.pulls=[]
+                for release,ids in ((prior,prior['image_ids']),(upcoming,{name:'sha256:'+char*64 for name,char in zip(engine.SERVICES,'def')})):
+                    for service in engine.SERVICES:
+                        row={'Id':ids[service],'Architecture':'arm64','Os':'linux','RepoDigests':[release['images'][service]],
+                          'Config':{'Env':['NODE_ENV=production'],'Labels':{'org.opencontainers.image.revision':release['sha'],
+                          'org.opencontainers.image.source':engine.SOURCE_LABEL,'io.ainativecrm.schema-sha256':SCHEMA}}}
+                        self.rows[release['images'][service]]=row;self.rows[row['Id']]=row
+            def docker(self,*args,**kwargs):
+                if args[0]=='pull':
+                    self.pulls.append(args[-1])
+                    if self.offline:raise engine.Failure('registry_unavailable')
+                    return b''
+                return json.dumps([self.rows[args[-1]]]).encode()
+            def prepare_images(self,release,use_cached=False):
+                return engine.RootRuntime.prepare_images(self,release,use_cached=use_cached)
+            def update(self,service,release):self.calls.append(('update',service,release['sha']))
+            def wait_healthy(self,service,release):
+                if service=='worker' and release['sha']==candidate['sha']:
+                    self.offline=True;raise engine.Failure('candidate_health_failed')
+        runtime=NetworkRuntime()
+        with self.assertRaises(engine.Failure) as caught:engine.ReleaseEngine(runtime).run(candidate)
+        self.assertEqual(caught.exception.code,'deployment_failed_rolled_back')
+        self.assertEqual(runtime.state['current'],prior);self.assertIsNone(runtime.state['pending'])
+        self.assertEqual(runtime.pulls,[upcoming['images'][service] for service in engine.SERVICES])
+        self.assertEqual([c[1] for c in runtime.calls if c[0]=='update' and c[2]==prior['sha']],list(engine.SERVICES))
+
+    def test_cached_recovery_still_rejects_wrong_architecture_digest_labels_and_id(self):
+        runtime=object.__new__(engine.RootRuntime)
+        release=engine.git_release(REQUEST);release['image_ids']=dict(LEGACY['image_ids'])
+        base={'Id':release['image_ids']['app'],'Architecture':'arm64','Os':'linux','RepoDigests':[release['images']['app']],
+              'Config':{'Labels':{'org.opencontainers.image.revision':SHA,'org.opencontainers.image.source':engine.SOURCE_LABEL,'io.ainativecrm.schema-sha256':SCHEMA}}}
+        for field,value in [('Architecture','amd64'),('RepoDigests',[]),('Config',{'Labels':{}}),('Id','sha256:'+'0'*64)]:
+            invalid=copy.deepcopy(base);invalid[field]=value;calls=[]
+            def docker(*args,**kwargs):calls.append(args);return json.dumps([invalid]).encode()
+            runtime.docker=docker
+            with self.subTest(field=field),self.assertRaises(engine.Failure):runtime.prepare_images(release,use_cached=True)
+            self.assertFalse(any(call[0]=='pull' for call in calls))
+
+    def test_recovery_fetches_only_missing_cached_image_and_revalidates_identity(self):
+        runtime=object.__new__(engine.RootRuntime)
+        release=engine.git_release(REQUEST);release['image_ids']=dict(LEGACY['image_ids']);calls=[]
+        def docker(*args,**kwargs):
+            calls.append(args)
+            if args[0]=='pull':return b''
+            ref=args[-1]
+            if ref==release['image_ids']['app']:raise engine.Failure('local_image_missing')
+            name=next(name for name in engine.SERVICES if ref in (release['image_ids'][name],release['images'][name]))
+            row={'Id':release['image_ids'][name],'Architecture':'arm64','Os':'linux','RepoDigests':[release['images'][name]],
+                 'Config':{'Labels':{'org.opencontainers.image.revision':SHA,'org.opencontainers.image.source':engine.SOURCE_LABEL,'io.ainativecrm.schema-sha256':SCHEMA}}}
+            return json.dumps([row]).encode()
+        runtime.docker=docker
+        self.assertEqual(runtime.prepare_images(release,use_cached=True),release['image_ids'])
+        self.assertEqual([call[-1] for call in calls if call[0]=='pull'],[release['images']['app']])
+
+    def test_recovery_requires_previously_recorded_image_identity(self):
+        runtime=object.__new__(engine.RootRuntime)
+        runtime.docker=lambda *args,**kwargs:self.fail('no Docker action before saved identity validation')
+        with self.assertRaises(engine.Failure):runtime.prepare_images(engine.git_release(REQUEST),use_cached=True)
 
 if __name__=='__main__':unittest.main()

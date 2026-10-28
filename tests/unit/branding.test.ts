@@ -315,6 +315,12 @@ const MARCA_CONGELADA: Record<string, EntradaDeMarca> = {
     motivo: "o mesmo cookie de sessão, lido no servidor; tem de casar com o do browser",
     marcas: ["sb-pi-native-auth"],
   },
+  "lib/supabase/keys-transport.test.ts": {
+    categoria: "INFRA",
+    motivo:
+      "duas asserções do contrato fixo de sessão de browser.ts/server.ts: storageKey e nomes dos chunks do cookie. Preservar os literais detecta renomeações que encerrariam sessões existentes; é protocolo técnico de teste, sem texto de marca na interface",
+    marcas: ["sb-pi-native-auth", "sb-pi-native-auth"],
+  },
   "lib/impersonate/cookie.ts": {
     categoria: "INFRA",
     motivo:

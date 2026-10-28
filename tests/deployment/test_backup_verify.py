@@ -182,6 +182,21 @@ class BackupVerifierTests(unittest.TestCase):
         with self.assertRaises(m.VerificationError):
             m.require_equal(owner_only, public_execute, "catalog")
 
+    def test_sequence_values_do_not_require_nonexistent_composite_rowtype(self):
+        m = self.get_module()
+        class Session:
+            def __enter__(self): return self
+            def __exit__(self, *unused): return None
+            def json(self, query):
+                if "to_jsonb(s)" in query:
+                    raise m.VerificationError("sqlstate_42809")
+                if "jsonb_agg" in query:
+                    return [["public", "sequence_fixture"]]
+                return {"last_value": 7, "is_called": True}
+        with patch.object(m, "Snapshot", return_value=Session()), patch.object(m, "write_json"):
+            values = m.sequence_values("b" * 64, Path("unused"), "restore")
+        self.assertEqual(values["postgres"]["public.sequence_fixture"], {"last_value": 7, "is_called": True})
+
 
 if __name__ == "__main__":
     unittest.main()

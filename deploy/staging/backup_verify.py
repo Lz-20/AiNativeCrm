@@ -603,12 +603,13 @@ def sequence_values(cid, dest, suffix):
     result = {}
     with contextlib.ExitStack() as stack:
         for db in DATABASES:
-            session = stack.enter_context(Snapshot(cid, db, restored=True))
+            session = stack.enter_context(Snapshot(cid, db, dest / (db + "-sequences-" + suffix + ".log"), restored=True))
             names = session.json(f"""SELECT coalesce(jsonb_agg(jsonb_build_array(n.nspname,c.relname)
                ORDER BY n.nspname,c.relname),'[]') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
                WHERE {USER_SCHEMA} AND c.relkind='S'""")
-            result[db] = {schema + "." + name: session.json("SELECT to_jsonb(s) FROM " + identifier(schema)
-                                                         + "." + identifier(name) + " s") for schema, name in names}
+            result[db] = {schema + "." + name: session.json(
+                "SELECT jsonb_build_object('last_value',last_value,'is_called',is_called) FROM "
+                + identifier(schema) + "." + identifier(name)) for schema, name in names}
     write_json(dest / ("sequences-" + suffix + ".json"), result)
     return result
 

@@ -160,7 +160,7 @@ class ReleaseEngine:
         self.rt.ensure_backup(state)
         self.rt.verify_current(state,recovery=operation=='rollback')
         before=self.rt.boundary()
-        target['image_ids']=self.rt.prepare_images(target)
+        target['image_ids']=self.rt.prepare_images(target,use_cached=operation=='rollback')
         prior=copy.deepcopy(state['current'])
         txid=dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'-'+uuid.uuid4().hex[:12]
         state['pending']={'transaction':txid,'operation':operation,'target':target,'prior':prior,'started_at':utcnow()}
@@ -174,7 +174,7 @@ class ReleaseEngine:
             self.rt.audit({'transaction':txid,'phase':'failed','error':code,'at':utcnow()})
             try:
                 if operation=='rollback':raise Failure('manual_rollback_failed')
-                self.rt.prepare_images(prior)
+                self.rt.prepare_images(prior,use_cached=True)
                 self.rollout(prior)
                 self.rt.verify_boundary(before)
             except BaseException:
@@ -413,13 +413,21 @@ class RootRuntime:
             item['listeners']=[p for p in item['listeners'] if tuple(p)!=('tcp','127.0.0.1:3100')]
         need(after==before,'protected_services_supabase_ports_or_env_changed')
 
-    def prepare_images(self,release):
+    def prepare_images(self,release,use_cached=False):
         validate_release(release,release['schema_sha256'])
         images={}
         for service in SERVICES:
             ref=release['images'][service]
-            if release['kind']=='git':self.docker('pull','--platform','linux/arm64',ref,timeout=900)
-            row=json.loads(self.docker('image','inspect',ref))[0]
+            row=None
+            if release['kind']=='git' and use_cached:
+                need('image_ids' in release,'recovery_requires_recorded_image_ids')
+                try:row=json.loads(self.docker('image','inspect',release['image_ids'][service]))[0]
+                except Failure:pass  # A missing cache may be fetched by its fixed digest.
+            if row is None:
+                if release['kind']=='git':self.docker('pull','--platform','linux/arm64',ref,timeout=900)
+                row=json.loads(self.docker('image','inspect',ref))[0]
+            if use_cached and release.get('image_ids'):
+                need(row['Id']==release['image_ids'][service],'cached_recovery_image_identity')
             need(row.get('Architecture')=='arm64' and row.get('Os')=='linux','image_must_be_native_linux_arm64')
             need(not row.get('Config',{}).get('Volumes'),'image_declares_unreviewed_volumes')
             for item in row.get('Config',{}).get('Env',[]):
@@ -481,9 +489,13 @@ class RootRuntime:
         except (ValueError,UnicodeError):raise Failure('http_probe_invalid_json') from None
 
     def readiness(self):
-        result=self.http_request('http://127.0.0.1:3100/api/v1/health')
-        need(result.get('checks',{}).get('supabase',{}).get('status')=='ok','supabase_readiness_failed')
-        need(result.get('status') in ('ok','degraded'),'app_readiness_failed')
+        response=self.http_request('http://127.0.0.1:3100/api/v1/health')
+        need(type(response) is dict and 'error' not in response and type(response.get('data')) is dict,'app_readiness_response_shape')
+        result=response['data']
+        checks=result.get('checks')
+        need(type(checks) is dict and type(checks.get('supabase')) is dict,'app_readiness_response_shape')
+        need(checks['supabase'].get('status')=='ok','supabase_readiness_failed')
+        need(result.get('status') in ('healthy','degraded'),'app_readiness_failed')
         return {'http_status':200,'supabase':'ok','status':result['status']}
 
     def core_probe(self):

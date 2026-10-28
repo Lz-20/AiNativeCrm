@@ -10,7 +10,10 @@ import { describe, expect, it } from "vitest";
 const SCRIPT = "scripts/pr-mexe-na-imagem.sh";
 
 function responde(caminhos: string[]): string {
-  return execFileSync("bash", [SCRIPT], { input: caminhos.join("\n") + "\n", encoding: "utf-8" }).trim();
+  return execFileSync("bash", [SCRIPT], {
+    input: caminhos.join("\n") + "\n",
+    encoding: "utf-8",
+  }).trim();
 }
 
 describe("pr-mexe-na-imagem", () => {
@@ -30,6 +33,11 @@ describe("pr-mexe-na-imagem", () => {
     ["public/logo.png"],
     ["lib/agent-engine/playbooks/platform.md"],
     ["supabase/baseline.sql"],
+    ["supabase/migrations/0999_guard.sql"],
+    ["lib/agent-engine/agent/final-answer.ts"],
+    ["lib/backups/restore.ts"],
+    ["app/api/credentials/route.ts"],
+    ["lib/secret.private.key.ts"],
     [".github/workflows/publish-image.yml"],
     [".github/algum/script.ts"],
   ])("%s → constrói", (caminho) => {
@@ -38,6 +46,20 @@ describe("pr-mexe-na-imagem", () => {
 
   it("entrada vazia constrói — não saber o que mudou nunca vira 'pula'", () => {
     expect(responde([])).toBe("sim");
+  });
+
+  it.each([
+    "infra/supabase/.env",
+    "nested/deeper/.env.local",
+    "nested/deeper/private-backups/data.sql",
+    "nested/deeper/snapshot.dump",
+    "nested/postgres-cluster.tar",
+    "private-backups/data.sql",
+    "credentials/staging.json",
+    ".local/verification.json",
+    "final-20261027/private/app.env",
+  ])("artefato protegido %s fica fora do contexto e não exige imagem", (caminho) => {
+    expect(responde([caminho])).toBe("nao");
   });
 
   it("PR só de documentação, teste, fragmento e workflow alheio pula", () => {
@@ -83,7 +105,11 @@ describe("pr-mexe-na-imagem", () => {
 
   it("o espelho do .dockerignore no script não tem entrada que o .dockerignore não tenha", () => {
     const fonte = readFileSync(SCRIPT, "utf-8");
-    const bloco = [...fonte.matchAll(/^\s*(?:\|\s*)?((?:[.\w*-]+(?:\/\*)?\s*\|\s*)*[.\w*-]+(?:\/\*)?)\s*(?:\\|\) ;;)$/gm)]
+    const bloco = [
+      ...fonte.matchAll(
+        /^\s*(?:\|\s*)?((?:[.\w*-]+(?:\/\*)?\s*\|\s*)*[.\w*-]+(?:\/\*)?)\s*(?:\\|\) ;;)$/gm,
+      ),
+    ]
       .flatMap((m) => (m[1] ?? "").split("|").map((s) => s.trim()))
       .filter(Boolean);
     const doEspelho = bloco
@@ -125,7 +151,8 @@ describe("pr-mexe-na-imagem", () => {
       .filter((f) => !SO_FORA_DA_IMAGEM.has(f));
     expect(arquivos.length).toBeGreaterThan(500);
 
-    const IMPORT = /(?:from\s+|import\s*\(\s*|import\s+|require\(\s*)['"]((?:\.{1,2}\/|@\/)[^'"]+)['"]/g;
+    const IMPORT =
+      /(?:from\s+|import\s*\(\s*|import\s+|require\(\s*)['"]((?:\.{1,2}\/|@\/)[^'"]+)['"]/g;
     const violacoes: string[] = [];
     for (const f of arquivos) {
       const fonte = readFileSync(f, "utf-8");

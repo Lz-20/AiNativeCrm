@@ -35,16 +35,26 @@ while IFS= read -r caminho || [ -n "$caminho" ]; do
     # ↓ espelho do .dockerignore — os diretórios. Padrão de .dockerignore sem
     # barra casa só na RAIZ do contexto, e `*` de `case` atravessa `/`: por
     # isso todo padrão aqui começa pelo nome do diretório da raiz.
-    evidence | .superpowers) ;;
+    evidence | .superpowers | infra | final-20261027 | .local | .auth | .qa-vps \
+      | .qa-backups | backups | secrets | credentials | output | tmp) ;;
     node_modules/* | .next/* | .git/* | test-results/* | tests/* | .lina/* \
       | docs/* | tasks/* | scratchpad/* | .vercel/* | .claude/* | .agents/* \
       | .agent/* | .codex/* | .cursor/* | .opencode/* | .specs/* | .changes/* \
-      | evidence/* | .superpowers/*) ;;
+      | evidence/* | .superpowers/* | infra/* | final-20261027/* | .local/* | .auth/* \
+      | .qa-vps/* | .qa-backups/* | backups/* | secrets/* | credentials/* | output/* | tmp/*) ;;
+    # Os padrões **/ do .dockerignore também alcançam diretórios aninhados.
+    # Não generalizar para final-* ou qualquer diretório chamado credentials:
+    # código como lib/agent-engine/agent/final-answer.ts e app/api/credentials
+    # continua entrando no contexto e exige build.
+    */.env | */.env.* | */.env/* | */.env.*/*) ;;
+    private-backups | private-backups/* | */private-backups | */private-backups/*) ;;
+    *.dump | *.dump/* | postgres-cluster.tar | postgres-cluster.tar/* | */postgres-cluster.tar | */postgres-cluster.tar/*) ;;
     .github/*.yml | .github/*.yaml | .github/*.md) ;;
     # Daqui para baixo, só arquivo da RAIZ: qualquer outro caminho com `/` alcança.
     */*) echo sim; exit 0 ;;
     # ↓ espelho do .dockerignore — os arquivos da raiz.
-    .env | .env.* | playwright.config.ts | *.png | *.log | *.tsbuildinfo) ;;
+    .env | .env.* | playwright.config.ts | *.png | *.log | *.tsbuildinfo \
+      | *.sql.gz | *.har | *.trace.zip | *.p12 | *.pfx | *.private.key) ;;
     *.md) ;;
     *) echo sim; exit 0 ;;
   esac

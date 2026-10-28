@@ -26,8 +26,11 @@
  *    `public.fn_aplicar_travas_de_suporte()` é perguntada ao `pg_class`, e toda
  *    tabela que ela alcança tem as três políticas restritivas `support_write_*`,
  *    para `authenticated`, no comando certo e com `fn_support_write_allowed` na
- *    expressão. A tabela só do servidor segue sem nenhuma. Os dois lados com
- *    guarda de vacuidade (contagem > 0).
+ *    expressão. A tabela só do servidor segue sem nenhuma, salvo api_audit_log:
+ *    o apêndice auditado 0409 revoga DML depois da instalação das três travas.
+ *    Essa exceção exige exatamente as três travas corretas e comprova ausência
+ *    de privilégio efetivo e recusa real (42501) para anon e authenticated.
+ *    Os dois lados da regra têm guarda de vacuidade (contagem > 0).
  * 2. CONSISTÊNCIA: o conjunto de `support_write_*` de `public` com UMA aplicação é
  *    igual ao de DUAS.
  * 3. COMPORTAMENTO, na tabela do escopo criada por último. Ela é escolhida pelo
@@ -164,19 +167,82 @@ describe("travas do modo somente leitura do suporte — baseline aplicado UMA ve
     expect(semAsTres, `tabelas sem as três travas corretas após UMA aplicação: ${semAsTres}`).toBe("");
   });
 
-  it("tabela do escopo só do servidor segue sem nenhuma trava support_write", () => {
+  it("tabela do escopo só do servidor segue sem nenhuma trava support_write, salvo a exceção auditada 0409", () => {
     const saida = psql(
       BANCO,
       `with alvo as (${REGRA(false)})
        select count(*) || '|' || coalesce(string_agg(relname, ',' order by relname)
                 filter (where exists (select 1 from pg_policy p
                                        where p.polrelid = alvo.oid and p.polname like 'support_write\\_%')), '')
-         from alvo;`,
+         from alvo where relname <> 'api_audit_log';`,
     );
     const [alcancadas, comTrava] = saida.split("|");
 
     expect(Number(alcancadas), "nenhuma tabela de organização só do servidor foi encontrada").toBeGreaterThan(0);
     expect(comTrava, `tabela só do servidor com trava support_write: ${comTrava}`).toBe("");
+  });
+
+  describe("api_audit_log: as três travas residuais de 0409 não concedem escrita", () => {
+    it("a tabela só do servidor conserva exatamente as três políticas restritivas corretas", () => {
+      expect(
+        psql(
+          BANCO,
+          `with alvo as (${REGRA(false)}), trava as (${TRAVA_CORRETA})
+           select (select count(*) from alvo where relname = 'api_audit_log') || '|' ||
+                  (select count(*) from pg_policy
+                    where polrelid = 'public.api_audit_log'::regclass
+                      and polname like 'support_write\\_%') || '|' ||
+                  (select count(*) from trava where polrelid = 'public.api_audit_log'::regclass);`,
+        ),
+      ).toBe("1|3|3");
+    });
+
+    const operacoes = [
+      { privilegio: "INSERT", sql: "insert into public.api_audit_log(organization_id) select null::uuid where false;" },
+      { privilegio: "UPDATE", sql: "update public.api_audit_log set organization_id = organization_id where false;" },
+      { privilegio: "DELETE", sql: "delete from public.api_audit_log where false;" },
+      { privilegio: "TRUNCATE", sql: "truncate public.api_audit_log;" },
+    ] as const;
+
+    describe.each(["anon", "authenticated"] as const)("papel %s", (papel) => {
+      it("não recebe INSERT, UPDATE, DELETE ou TRUNCATE efetivos, inclusive por herança", () => {
+        expect(
+          psql(
+            BANCO,
+            `select string_agg(privilegio || ':' || has_table_privilege('${papel}',
+                       'public.api_audit_log', privilegio)::text, ',' order by privilegio)
+               from unnest(array['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE']) as privilegio;`,
+          ),
+        ).toBe("DELETE:false,INSERT:false,TRUNCATE:false,UPDATE:false");
+      });
+
+      it.each(operacoes)("recusa $privilegio real com SQLSTATE 42501", ({ sql }) => {
+        // Só o banco descartável desta suíte. As três primeiras sondas têm zero
+        // linhas; a transação também protege o TRUNCATE caso haja uma regressão.
+        // Outro erro (coluna, FK, RLS, sintaxe) não substitui a prova de privilégio.
+        expect(
+          psql(
+            BANCO,
+            `begin;
+             set local role ${papel};
+             do $audit_guard$
+             begin
+               begin
+                 ${sql}
+               exception when insufficient_privilege then
+                 if sqlstate <> '42501' or sqlerrm not like '%permission denied for table api_audit_log%' then
+                   raise exception 'recusa diferente da permissão da tabela: % %', sqlstate, sqlerrm;
+                 end if;
+                 return;
+               end;
+               raise exception 'escrita de api_audit_log foi permitida';
+             end $audit_guard$;
+             rollback;
+             select 'recusado_42501';`,
+          ),
+        ).toBe("recusado_42501");
+      });
+    });
   });
 
   it("uma aplicação e duas aplicações chegam ao mesmo conjunto de travas", () => {

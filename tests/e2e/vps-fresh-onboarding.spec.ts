@@ -435,9 +435,13 @@ test.describe("J1 — onboarding do dono numa instalação fresca", () => {
     expect(org.onboarded_at).not.toBeNull();
   });
 
-  test("J1.10 verificação em duas etapas: ativa pela tela e VÊ os códigos de recuperação", async ({ page }) => {
+  test("J1.10 verificação em duas etapas: ativa pela tela e VÊ os códigos de recuperação", async ({ page, baseURL }) => {
     await login(page);
-    await page.waitForURL(/\/app\//, { timeout: 30_000 });
+    const origem = new URL(baseURL!).origin;
+    await page.waitForURL(
+      (url) => url.origin === origem && (url.pathname === "/app" || url.pathname.startsWith("/app/")),
+      { timeout: 30_000 },
+    );
 
     // ⚠️ ESTE CASO MUDOU DE PORTA, e a mudança é o ponto. Ele testava o
     // BLOQUEADOR não-dismissível que aparecia sozinho para todo admin — e era

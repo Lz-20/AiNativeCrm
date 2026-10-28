@@ -64,6 +64,43 @@ const DIR = join(process.cwd(), ".github/workflows");
  * que desliga um job de entrega fica visível em code review.
  */
 const GATILHO_ESPERADO: Record<string, { condicao: string | null; efeito: string }> = {
+  // Staging opcional deste fork: o operador pediu um fluxo independente da
+  // publicação distribuída. Estes gates preservam a ativação manual inicial,
+  // o main exato e o interruptor de push; nenhum substitui os checks existentes.
+  "staging-release.yml::prepare": {
+    condicao:
+      ">- github.repository == 'Lz-20/AiNativeCrm' && github.ref == 'refs/heads/main' && " +
+      "(github.event_name == 'workflow_dispatch' || vars.STAGING_AUTO_DEPLOY == 'true')",
+    efeito: "Só main deste fork pode preparar release; push permanece desligado até aceitação explícita.",
+  },
+  "staging-release.yml::ci-checks": {
+    condicao: "needs.prepare.outputs.operation == 'build' || needs.prepare.outputs.operation == 'deploy'",
+    efeito: "Build e deploy exigem o CI real do mesmo SHA; status e rollback não publicam artefatos novos.",
+  },
+  "staging-release.yml::build-check": {
+    condicao: "needs.prepare.outputs.operation == 'build' || needs.prepare.outputs.operation == 'deploy'",
+    efeito: "O build de produção existente mede o SHA antes de o manifest liberar a implantação.",
+  },
+  "staging-release.yml::e2e-check": {
+    condicao: "needs.prepare.outputs.operation == 'build' || needs.prepare.outputs.operation == 'deploy'",
+    efeito: "Build e deploy passam pelo E2E real; imagem publicada sozinha não é release aceita.",
+  },
+  "staging-release.yml::images": {
+    condicao: "needs.prepare.outputs.operation == 'build' || needs.prepare.outputs.operation == 'deploy'",
+    efeito: "Constrói os três artefatos ARM64 em operações de publicação, sem tocar a VPS.",
+  },
+  "staging-release.yml::manifest": {
+    condicao: null,
+    efeito: "Requer imagens e todos os gates anteriores; adicionar always() liberaria dependências reprovadas.",
+  },
+  "staging-release.yml::deploy": {
+    condicao: "needs.prepare.outputs.operation == 'deploy'",
+    efeito: "A operação padrão build nunca substitui containers; só deploy usa a entrada SSH restrita.",
+  },
+  "staging-release.yml::operate": {
+    condicao: "needs.prepare.outputs.operation == 'status' || needs.prepare.outputs.operation == 'rollback'",
+    efeito: "Mantém consulta e recuperação disponíveis sem construir outra versão nem executar deploy.",
+  },
   // --- a cadeia que leva o conserto até a VPS ---------------------------------
   "release.yml::abrir-pr-de-release": {
     condicao: "github.event_name == 'workflow_dispatch'",
