@@ -380,7 +380,9 @@ async function versaoComAsCapacidades(req: APIRequestContext, agenteId: string):
     if (!controlledFixture || agenteId !== controlledFixture.agentId) {
       throw new Error("Fixture do preview controlado ausente.");
     }
-    return criarVersao(req, agenteId, controlledFixture.credentialId,
+    // O placeholder não validado fica fora do binding. A chave interna é
+    // resolvida pela seleção padrão; IDs explícitos inválidos devem falhar.
+    return criarVersao(req, agenteId, null,
       controlledFixture.channelId, controlledFixture.provider, controlledFixture.model);
   }
   const chave = process.env.QA_LLM_API_KEY;
@@ -440,7 +442,7 @@ async function versaoComAsCapacidades(req: APIRequestContext, agenteId: string):
 async function criarVersao(
   req: APIRequestContext,
   agenteId: string,
-  credentialId: string,
+  credentialId: string | null,
   canalId: string,
   provider: string,
   modelo: string,

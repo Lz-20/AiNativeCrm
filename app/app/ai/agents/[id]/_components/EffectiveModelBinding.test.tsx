@@ -36,8 +36,8 @@ describe("the editor shows the server's effective binding", () => {
     vi.mocked(apiClient.get).mockResolvedValue({ data: summary });
     show(<EffectiveModelBinding agentId="agent" versionId="version" />);
     expect(await screen.findByText(/anthropic \/ org-model/)).toBeTruthy();
-    expect(screen.getByText(/绑定模式.*organization_default/)).toBeTruthy();
-    expect(screen.getByText(/Provider 匹配/)).toBeTruthy();
+    expect(screen.getByText(/Modo de vínculo.*organization_default/)).toBeTruthy();
+    expect(screen.getByText(/Provedor da credencial corresponde/)).toBeTruthy();
     expect(screen.queryByText(/deepseek-flash/)).toBeNull();
     expect(apiClient.post).not.toHaveBeenCalled();
   });
@@ -46,7 +46,7 @@ describe("the editor shows the server's effective binding", () => {
     async (credentialStatus) => {
       vi.mocked(apiClient.get).mockResolvedValue({ data: { ...summary, credentialStatus } });
       show(<EffectiveModelBinding agentId="agent" versionId="version" />);
-      expect(await screen.findByRole("alert")).toHaveTextContent("运行已阻止");
+      expect(await screen.findByRole("alert")).toHaveTextContent("execução bloqueada");
     },
   );
   it("a failed test exposes only the safe code and correlation ID", async () => {

@@ -363,9 +363,15 @@ async function aplicarOrcamento(d: {
     ]);
     linha = rows[0];
   } catch (err) {
+    const sqlstate = (err as { code?: unknown } | null)?.code;
     d.log?.warn("llm: consulta de orçamento falhou — a chamada SEGUE sem teto", {
       ...comum,
-      ...normalizarErro(err),
+      stage: "budget",
+      error_code: "budget_query_failed",
+      database_error_code:
+        sqlstate === "42P01" || sqlstate === "42703" || sqlstate === "57014"
+          ? sqlstate
+          : "unknown",
     });
     return;
   }

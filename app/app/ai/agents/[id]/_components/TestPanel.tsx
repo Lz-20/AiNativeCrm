@@ -218,7 +218,7 @@ export function TestPanel({ agent, draft, published, readOnly }: Props) {
 
         <EffectiveModelBinding agentId={agent.id} versionId={target.id} />
         {failure && <p role="alert" className="text-sm text-destructive">
-          {t("测试失败")}：{failure.code} · {t("请求编号")}：{failure.requestId}
+          {t("Falha no teste")}：{failure.code} · {t("ID da requisição")}：{failure.requestId}
         </p>}
 
         <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs">

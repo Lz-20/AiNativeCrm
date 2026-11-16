@@ -51,11 +51,25 @@ describe("fixture do preview controlado", () => {
       { query } as unknown as pg.Pool,
       { anthropicApiKey: "local-controlled-provider" },
       "org-local",
-      { provider: CONFIG_PREVIEW_CONTROLADO.provider, credentialId: "fixture-unvalidated" },
+      { provider: CONFIG_PREVIEW_CONTROLADO.provider, credentialId: null },
     );
     expect(config.provider).toBe("anthropic");
     expect(config.origemDaChave).toBe("chave_da_instalacao");
     expect(query.mock.calls[1]?.[0]).toContain("validated_at is not null");
+  });
+
+  it("recusa uma credencial explícita indisponível mesmo com chave interna", async () => {
+    const query = vi.fn()
+      .mockResolvedValueOnce({ rows: [{ llm: {} }] })
+      .mockResolvedValueOnce({ rows: [] });
+    await expect(resolveOrgLlmConfig(
+      { query } as unknown as pg.Pool,
+      { anthropicApiKey: "local-controlled-provider" },
+      "org-local",
+      { provider: CONFIG_PREVIEW_CONTROLADO.provider, credentialId: "fixture-unvalidated" },
+    )).rejects.toMatchObject({ code: "credential_unavailable", stage: "credential" });
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(query.mock.calls[1]?.[1]).toEqual(["org-local", "fixture-unvalidated"]);
   });
 
   it("prepara só IDs próprios e limpa runs antes das FKs restritas", async () => {

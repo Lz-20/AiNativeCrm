@@ -38,6 +38,22 @@ import catalogoChines from "./traducoes/zh-CN.json";
 type Traducoes = Record<string, Partial<Record<Exclude<Idioma, "pt-BR">, string>>>;
 
 export const DICIONARIO: Traducoes = {
+  "Carregando a configuração efetiva…": { es: "Cargando la configuración efectiva…", "zh-CN": "正在读取实际运行配置…" },
+  "Não foi possível carregar a configuração efetiva. Confira o modelo da organização.": { es: "No se pudo cargar la configuración efectiva. Revisa el modelo de la organización.", "zh-CN": "无法读取实际运行配置，请检查组织模型设置。" },
+  "Modelo efetivo": { es: "Modelo efectivo", "zh-CN": "实际运行模型" },
+  "Modo de vínculo": { es: "Modo de vinculación", "zh-CN": "绑定模式" },
+  "Origem da configuração": { es: "Origen de la configuración", "zh-CN": "配置来源" },
+  "Configuração padrão da organização": { es: "Configuración predeterminada de la organización", "zh-CN": "组织默认配置" },
+  "Configuração fixa da versão": { es: "Configuración fija de la versión", "zh-CN": "固定版本配置" },
+  "Estado da credencial": { es: "Estado de la credencial", "zh-CN": "凭据状态" },
+  "Usando a credencial da instalação para o mesmo provedor": { es: "Usando la credencial de la instalación para el mismo proveedor", "zh-CN": "使用同 Provider 的安装凭据" },
+  "Provedor da credencial corresponde": { es: "El proveedor de la credencial coincide", "zh-CN": "Provider 匹配" },
+  "Provedor da credencial não corresponde; execução bloqueada": { es: "El proveedor de la credencial no coincide; ejecución bloqueada", "zh-CN": "Provider 不匹配，运行已阻止" },
+  "Credencial padrão ambígua; execução bloqueada": { es: "Credencial predeterminada ambigua; ejecución bloqueada", "zh-CN": "无法确定默认凭据，运行已阻止" },
+  "Nenhuma credencial disponível; execução bloqueada": { es: "Ninguna credencial disponible; ejecución bloqueada", "zh-CN": "没有可用凭据，运行已阻止" },
+  "Este agente usa o modelo padrão da organização. O modelo e a credencial salvos na versão não são usados. Altere nas configurações de modelo da organização.": { es: "Este agente usa el modelo predeterminado de la organización. No se usan el modelo ni la credencial guardados en la versión. Cámbialos en la configuración del modelo de la organización.", "zh-CN": "此 Agent 跟随组织默认模型；版本中保存的模型和凭据不参与运行。请在组织模型设置中修改。" },
+  "Falha no teste": { es: "Error en la prueba", "zh-CN": "测试失败" },
+  "ID da requisição": { es: "ID de la solicitud", "zh-CN": "请求编号" },
   "Sobre a empresa": { es: "Sobre la empresa" },
   "Não foi possível carregar o enriquecimento.": { es: "No se pudo cargar el enriquecimiento." },
   "Sem dados de enriquecimento para este contato.": { es: "Sin datos de enriquecimiento para este contacto." },

@@ -13,20 +13,20 @@ export async function readAgentModelBinding(
   versionId: string,
   cfg: LlmEdgeConfig,
 ): Promise<AgentBindingSummary | null> {
-  const agent = await loadAgentVersionConfig(pool, org, agentId, versionId);
-  if (!agent) return null;
-  const bindingMode = agent.modelBindingMode ?? "pinned";
+  const agentConfig = await loadAgentVersionConfig(pool, org, agentId, versionId);
+  if (!agentConfig) return null;
+  const bindingMode = agentConfig.modelBindingMode ?? "pinned";
   const base = {
     bindingMode,
     source:
       bindingMode === "organization_default"
         ? ("organization_default" as const)
         : ("version" as const),
-    provider: agent.provider,
-    model: agent.model,
+    provider: agentConfig.provider,
+    model: agentConfig.model,
   };
   try {
-    const row = await selectLlmCredential(pool, org, agent.provider, agent.credentialId, false);
+    const row = await selectLlmCredential(pool, org, agentConfig.provider, agentConfig.credentialId, false);
     const platform = {
       anthropic: cfg.anthropicApiKey,
       openai: cfg.openaiApiKey,
@@ -34,7 +34,7 @@ export async function readAgentModelBinding(
       openrouter: cfg.openrouterApiKey,
       deepseek: cfg.deepseekApiKey,
     };
-    const hasPlatform = Boolean(platform[agent.provider as keyof typeof platform]);
+    const hasPlatform = Boolean(platform[agentConfig.provider as keyof typeof platform]);
     return {
       ...base,
       credentialStatus: row ? "matched" : hasPlatform ? "platform" : "unavailable",

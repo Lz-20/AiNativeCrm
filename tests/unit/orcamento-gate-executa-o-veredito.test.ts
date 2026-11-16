@@ -33,11 +33,12 @@ import {
   normalizarErro,
 } from "@/lib/agent-engine/edge/llm/run-model-call";
 import { runtimeThatFails } from "@/tests/agent-runtime/fixtures/test-runtime";
+import { ModelCallError } from "@/lib/agent-runtime/errors";
 
 const ORG = "33333333-3333-4333-8333-333333333333";
 
 /** O erro que prova que a chamada CHEGOU ao provedor — isto é, que o gate deixou passar. */
-const SENTINELA = new Error("o provedor foi alcançado");
+const SENTINELA = new ModelCallError("model_failed", "runtime");
 
 const ONTEM = new Date(Date.now() - 24 * 60 * 60 * 1000);
 const AMANHA = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -208,6 +209,7 @@ describe("o gate de orçamento lê ai_budgets e executa o veredito", () => {
     it("modo 'off' com gasto 10x o teto SEGUE — e sem ir ao banco", async () => {
       const r = await chamar({ config: { modo: "off" } });
       expect(r.lancou).toBe(SENTINELA);
+      expect(r.invocacoes).toEqual(["claude-padrao"]);
       // O atalho de custo: com 'off' em 100% das organizações no dia do
       // upgrade, o caminho de orçamento faz estritamente MENOS trabalho que o
       // `assertBudget` de antes, que ia ao banco somar llm_calls.
@@ -289,9 +291,12 @@ describe("o gate de orçamento lê ai_budgets e executa o veredito", () => {
       expect(r.lancou).toBe(SENTINELA);
       const aviso = r.linhas.find((l) => l.nivel === "warn" && l.msg.includes("orçamento"));
       expect(aviso, "seguiu em SILÊNCIO — a frase tranquilizadora sem a causa").toBeDefined();
-      // A causa NOMEADA, não "algo deu errado": sem ela a próxima pessoa
-      // investiga do zero.
-      expect(JSON.stringify(aviso?.campos)).toMatch(/does not exist/);
+      // A origem e o SQLSTATE permitido explicam a falha sem copiar texto
+      // arbitrário do banco, nem classificar relação ausente como modelo.
+      expect(aviso?.campos).toMatchObject({
+        stage: "budget", error_code: "budget_query_failed", database_error_code: "42P01",
+      });
+      expect(JSON.stringify(aviso?.campos)).not.toMatch(/does not exist|ai_budgets/);
     });
 
     it("statement sem linha (mundo impossível) também SEGUE, e avisa", async () => {
