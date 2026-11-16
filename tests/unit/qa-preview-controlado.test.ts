@@ -15,6 +15,12 @@ import { DEFAULT_CHANNEL_PROVIDER } from "@/lib/channels/capabilities";
 import { tool } from "@/lib/agent-engine/edge/llm/run-model-call";
 import { runPiAiSdkCall } from "@/lib/agent-runtime/pi/ai-sdk-compat";
 import { createPreviewAgentRuntime } from "@/lib/agent-runtime/pi/preview-fixture";
+import { decryptKey } from "@/lib/crypto/aes_gcm";
+
+vi.mock("@/lib/env", async (original) => {
+  const actual = await original<typeof import("@/lib/env")>();
+  return { ...actual, env: { ...actual.env, AI_CRED_AES_KEY: Buffer.alloc(32, 7).toString("base64") } };
+});
 
 const destination = {
   url: "http://127.0.0.1:54321",
@@ -87,7 +93,13 @@ describe("fixture do preview controlado", () => {
     });
     expect(fixture.provider).toBe("anthropic");
     expect(fixture.agentId).not.toBe(fixture.channelId);
-    expect(queries.some(({ sql }) => sql.includes("validated_at") && sql.includes("null"))).toBe(true);
+    const credential = queries.find(({ sql }) => sql.includes("insert into ai_provider_credentials"));
+    expect(credential?.sql).toContain("true,now()");
+    const [, , , ciphertext, iv, tag] = credential!.params as unknown[];
+    expect(iv).toHaveLength(12);
+    expect(tag).toHaveLength(16);
+    expect(decryptKey({ ciphertext: ciphertext as Buffer, iv: iv as Buffer, tag: tag as Buffer }))
+      .toBe("local-controlled-provider");
     expect(queries.find(({ sql }) => sql.includes("insert into channel_knobs"))?.params).toEqual([
       "org-local", fixture.channelId, 0, 24,
     ]);
@@ -101,6 +113,15 @@ describe("fixture do preview controlado", () => {
       expect(deletion.params?.[0]).toBe("org-local");
       expect([fixture.agentId, fixture.channelId, fixture.credentialId]).toContain(deletion.params?.[1]);
     }
+  });
+
+  it("recusa destinos remotos antes de conectar ou criar uma credencial sintética", async () => {
+    const connect = vi.fn();
+    await expect(prepararPreviewControlado({ connect } as unknown as pg.Pool, {
+      destination: { ...destination, url: "https://remote.example" }, controlled: "true",
+      orgId: "org-local", adminEmail: "admin@invariant.test",
+    })).rejects.toThrow(/locais/);
+    expect(connect).not.toHaveBeenCalled();
   });
 
   it("recusa organização ou identidade inesperada e reverte a transação", async () => {

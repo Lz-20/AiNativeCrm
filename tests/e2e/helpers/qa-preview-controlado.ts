@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type pg from "pg";
 import { destinoEhLocal } from "../../../scripts/lib/env-de-teste";
+import { encryptKey } from "../../../lib/crypto/aes_gcm";
 
 type Destination = { url: string; dbUrl: string; appUrl: string };
 
@@ -57,14 +58,16 @@ export async function prepararPreviewControlado(
        values($1,$2,$3,$4)`,
       [orgId, channelId, CONFIG_PREVIEW_CONTROLADO.pacing.windowStartHour, CONFIG_PREVIEW_CONTROLADO.pacing.windowEndHour],
     );
-    // Mesmo contrato do seed-e2e-followup-agent: placeholder NÃO validado,
-    // nunca decifrado. Não representa chave de provider externo. O runtime
-    // controlado resolve a chave interna de requestTurnDeps após a consulta.
+    // Credencial SINTÉTICA exclusivamente no banco local com runtime controlado.
+    // Exercita seleção, status e AES reais; não representa validação num provider
+    // externo. O Pi faux controla o transporte, sem chamada paga. Um placeholder
+    // inválido não pode mais depender de fallback silencioso da instalação.
+    const encrypted = encryptKey("local-controlled-provider");
     await client.query(
       `insert into ai_provider_credentials(id,organization_id,provider,label,
          api_key_encrypted,api_key_iv,api_key_tag,api_key_last4,is_active,validated_at,created_by)
-       values($1,$2,'anthropic',$3,decode('00','hex'),decode('00','hex'),decode('00','hex'),'test',true,null,$4)`,
-      [credentialId, orgId, label, adminId],
+       values($1,$2,'anthropic',$3,$4,$5,$6,$7,true,now(),$8)`,
+      [credentialId, orgId, label, encrypted.ciphertext, encrypted.iv, encrypted.tag, encrypted.last4, adminId],
     );
     await client.query(
       `insert into ai_agents(id,organization_id,name,kind,origin,model_binding_mode,system_prompt,model,created_by)
