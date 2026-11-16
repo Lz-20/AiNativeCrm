@@ -7,6 +7,7 @@ import { useT } from "@/hooks/i18n/useT";
 import type { AgentPatch } from "@/lib/ai/guardrails-schema";
 
 export interface AgentRow {
+  model_binding_mode?: "organization_default" | "pinned";
   id: string;
   organization_id: string;
   name: string;

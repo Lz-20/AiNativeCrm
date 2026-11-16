@@ -14,6 +14,11 @@ import { ROLE_RANK, type AuthUser, type Role } from "@/lib/auth/types";
 import { testAgentVersion } from "@/lib/agent-engine/agent/sandbox";
 import { requestTurnDeps } from "@/lib/agent-engine/agent/request-deps";
 import { getRequestPool } from "@/lib/agent-engine/db/request-pool";
+import { ModelCallError } from "@/lib/agent-runtime/errors";
+import { logger } from "@/lib/logger";
+import { readAgentModelBinding } from "@/lib/agent-engine/agent/model-binding-summary";
+vi.mock("@/lib/logger", () => ({ logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } }));
+vi.mock("@/lib/agent-engine/agent/model-binding-summary", () => ({ readAgentModelBinding: vi.fn() }));
 
 vi.mock("@/lib/auth/require-role", () => ({ requireRole: vi.fn() }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
@@ -87,6 +92,7 @@ describe("POST .../versions/:vid/test — core compartilhado", () => {
   const turnDeps = {};
 
   beforeEach(() => {
+    vi.clearAllMocks();
     atualizacoes.length = 0;
     const user: AuthUser = {
       id: USER,
@@ -105,6 +111,40 @@ describe("POST .../versions/:vid/test — core compartilhado", () => {
     vi.mocked(createAdminClient).mockReturnValue(stubAdmin(atualizacoes) as never);
     vi.mocked(getRequestPool).mockReturnValue(requestPool as never);
     vi.mocked(requestTurnDeps).mockReturnValue(turnDeps as never);
+  });
+
+  it("reads the effective binding without executing a model", async () => {
+    vi.mocked(readAgentModelBinding).mockResolvedValueOnce({ bindingMode: "organization_default", source: "organization_default",
+      provider: "anthropic", model: "org-model", credentialStatus: "unavailable" });
+    const { GET } = await import("./route");
+    const response = await GET(new NextRequest("http://localhost/x"), { params: Promise.resolve({ id: AGENT, vid: VERSION }) });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ data: { provider: "anthropic", model: "org-model", credentialStatus: "unavailable" } });
+    expect(testAgentVersion).not.toHaveBeenCalled();
+    expect(atualizacoes).toEqual([]);
+  });
+
+  it.each(["credential_provider_mismatch", "model_http_401", "checkpoint_invalid", "model_aborted"] as const)(
+    "propagates %s and its request ID without a fake tool success", async (code) => {
+      vi.mocked(testAgentVersion).mockRejectedValueOnce(new ModelCallError(code, code === "checkpoint_invalid" ? "checkpoint" : "runtime",
+        code === "model_http_401" ? 401 : null, code === "model_aborted" ? "aborted" : "error"));
+      const { POST } = await import("./route");
+      const response = await POST(new NextRequest("http://localhost/x", { method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sample_message: "synthetic-only-message" }) }), { params: Promise.resolve({ id: AGENT, vid: VERSION }) });
+      const requestId = response.headers.get("X-Request-Id");
+      expect(await response.json()).toMatchObject({ error: { code, details: { request_id: requestId } } });
+      expect(atualizacoes).toContainEqual(expect.objectContaining({ status: code === "model_aborted" ? "aborted" : "failed", error_code: code }));
+      expect(atualizacoes.some((value) => "tool_calls" in value)).toBe(false);
+      expect(JSON.stringify(vi.mocked(logger.error).mock.calls)).toContain(requestId);
+      expect(JSON.stringify(vi.mocked(logger.error).mock.calls)).not.toContain("synthetic-only-message");
+    });
+
+  it("does not log or persist arbitrary upstream error text", async () => {
+    vi.mocked(testAgentVersion).mockRejectedValueOnce(new Error("RAW-SSE-CUSTOMER-SENTINEL Cookie: private; Authorization: private"));
+    const { POST } = await import("./route");
+    await POST(new NextRequest("http://localhost/x", { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sample_message: "synthetic" }) }), { params: Promise.resolve({ id: AGENT, vid: VERSION }) });
+    expect(JSON.stringify([atualizacoes, vi.mocked(logger.error).mock.calls])).not.toMatch(/RAW-SSE|Cookie:|Authorization:/);
   });
 
   it("falha do core vira checkpoint e orientação legível", async () => {

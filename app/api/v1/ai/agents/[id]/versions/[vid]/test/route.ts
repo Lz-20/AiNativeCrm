@@ -39,12 +39,31 @@ import { requestTurnDeps } from "@/lib/agent-engine/agent/request-deps";
 import { getRequestPool } from "@/lib/agent-engine/db/request-pool";
 import { traduzir } from "@/lib/i18n/dicionario";
 import { logger } from "@/lib/logger";
+import { ModelCallError } from "@/lib/agent-runtime/errors";
+import { normalizarErro } from "@/lib/agent-engine/edge/llm/run-model-call";
+import { readAgentModelBinding } from "@/lib/agent-engine/agent/model-binding-summary";
 
 export const dynamic = "force-dynamic";
 
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type Ctx = { params: Promise<{ id: string; vid: string }> };
+
+/** Preview the effective binding without a model request or credential decryption. */
+export async function GET(_req: NextRequest, ctx: Ctx): Promise<Response> {
+  const requestId = randomUUID();
+  const { id, vid } = await ctx.params;
+  if (!UUID_RX.test(id) || !UUID_RX.test(vid)) return fail("invalid_request", "ids inválidos.", 400, { requestId });
+  const authz = await requireRole("manager", { requestId, resource: "ai_agents" });
+  if (!authz.ok) return authz.response;
+  try {
+    const summary = await readAgentModelBinding(getRequestPool(), authz.org.orgId, id, vid, requestTurnDeps().llmCfg);
+    return summary ? ok(summary, { requestId }) : fail("not_found", "Version não encontrada.", 404, { requestId });
+  } catch (error) {
+    return fail(error instanceof ModelCallError ? error.code : "model_binding_unavailable",
+      "Não foi possível resolver a configuração efetiva de IA.", 422, { requestId });
+  }
+}
 
 /**
  * Fecha a linha do run — e RECLAMA se não conseguir.
@@ -154,6 +173,7 @@ export async function POST(req: NextRequest, ctx: Ctx): Promise<Response> {
       agentId: id,
       versionId: vid,
       runId: runRow.id,
+      requestId,
       sampleMessage: parsed.data.sample_message,
       sampleContact: parsed.data.sample_contact,
       channelId: version.channel_session_id,
@@ -193,29 +213,37 @@ export async function POST(req: NextRequest, ctx: Ctx): Promise<Response> {
     // problema INDIAGNOSTICÁVEL: o teste falhava, a tela dizia uma frase
     // genérica sobre modelo e credencial, e a causa real não existia em lugar
     // nenhum — nem no log, nem na linha do run, nem na resposta.
-    const mensagem = err instanceof Error ? err.message : String(err);
+    const diagnostic = normalizarErro(err);
+    const mensagem = diagnostic.error_message;
+    const errorCode = err instanceof ModelCallError ? err.code : "preview_failed";
     logger.error("[ai.test] o teste do agente falhou", {
       request_id: requestId,
       run_id: runRow.id,
+      preview_run_id: runRow.id,
+      latency_ms: Date.now() - startedAt.getTime(),
       agent_id: id,
       version_id: vid,
       organization_id: activeOrg.orgId,
       error: mensagem,
+      error_code: errorCode,
+      stage: err instanceof ModelCallError ? err.stage : "preview",
+      stop_reason: err instanceof ModelCallError ? err.stopReason : null,
+      http_status: diagnostic.http_status,
     });
     await atualizarRun(admin, activeOrg.orgId, runRow.id, requestId, {
-      status: "failed",
+      status: errorCode === "model_aborted" ? "aborted" : "failed",
       completed_at: new Date().toISOString(),
       latency_ms: Date.now() - startedAt.getTime(),
-      error_code: "preview_failed",
+      error_code: errorCode,
       // Guardado na linha para quem for diagnosticar depois; a resposta ao
       // operador segue genérica, porque o texto do erro é técnico.
       error_message: mensagem.slice(0, 2000),
     });
     return fail(
-      "preview_failed",
+      errorCode,
       t("Não foi possível executar o teste. Confira modelo, credencial e materiais do agente."),
       422,
-      { requestId },
+      { requestId, details: { request_id: requestId, failure_code: errorCode } },
     );
   }
 

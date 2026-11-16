@@ -208,7 +208,7 @@ describe("a classificação separa os problemas que exigem conversas diferentes"
   it("o que não se encaixa vira desconhecido, e não um chute", async () => {
     // Classificar tudo em algum balde conhecido seria pior que admitir que não
     // sabemos: o operador seguiria a instrução errada com confiança.
-    expect(await codigoDe(new Error("algo completamente inesperado"))).toBe("erro_desconhecido");
+    expect(await codigoDe(new Error("algo completamente inesperado"))).toBe("model_failed");
   });
 
   it("provedores diferentes com o MESMO problema recebem o mesmo código", async () => {
@@ -304,7 +304,7 @@ describe("teto de saída de chamadas auxiliares", () => {
           },
           { runtime },
         ),
-      ).rejects.toThrow("fim da sonda");
+      ).rejects.toThrow("model_failed");
       expect(received).toBe(expected);
     },
   );

@@ -22,6 +22,7 @@ import type { RuntimeMessage } from "@/lib/agent-runtime";
 import type { RunModelCallInput, ToolSet } from "@/lib/agent-engine/edge/llm/run-model-call";
 import { loadAgentVersionConfig } from "@/lib/agent-engine/agent/agent-config";
 import { requestTurnDeps } from "@/lib/agent-engine/agent/request-deps";
+import { ModelCallError } from "@/lib/agent-runtime/errors";
 import { buildMcpTurnTools } from "@/lib/agent-engine/edge/crm/mcp-tools";
 import { getRequestPool } from "@/lib/agent-engine/db/request-pool";
 import type { createAdminClient } from "@/lib/supabase/admin";
@@ -606,8 +607,9 @@ export async function runResumedWorkbenchTurn(input: {
       }
       await input.beforeSideEffect?.();
       const budgetExceeded = error instanceof MissionBudgetExceededError;
-      const status = budgetExceeded ? "partial" : "failed";
-      const code = budgetExceeded ? error.message : "resume_failed";
+      const cancelled = error instanceof ModelCallError && error.code === "model_aborted";
+      const status = budgetExceeded ? "partial" : cancelled ? "cancelled" : "failed";
+      const code = budgetExceeded ? error.message : error instanceof ModelCallError ? error.code : "resume_failed";
       await admin
         .from("ai_workbench_runs")
         .update({
@@ -622,7 +624,7 @@ export async function runResumedWorkbenchTurn(input: {
       await appendWorkbenchEvent(admin, {
         organizationId,
         runId,
-        type: budgetExceeded ? "run_partial" : "run_failed",
+        type: budgetExceeded ? "run_partial" : cancelled ? "run_cancelled" : "run_failed",
         payload: {
           ...(budgetExceeded
             ? { status: "partial", reason: code }

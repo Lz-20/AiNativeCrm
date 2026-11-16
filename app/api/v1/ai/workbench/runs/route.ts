@@ -249,6 +249,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     status: "queued",
     budget: budget as never,
     runtime_state: {
+      requestId,
       versionId: version.id,
       runner: "pi_crm_preview",
       replyContextRevision: resolvedScope.replyContextRevision,

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ModelCallError } from '@/lib/agent-runtime/errors';
 import {
   DECLARACAO_INSTRUCTION,
   declaracaoDoTurnoSchema,
@@ -87,24 +88,17 @@ export function parseCheckpointText(text: string): CheckpointContent {
   const start = text.indexOf('{');
   const end = text.lastIndexOf('}');
   if (start === -1 || end <= start) {
-    throw new Error('fechamento do turno sem JSON de checkpoint — run re-tentado pela fila');
+    throw new ModelCallError('checkpoint_invalid', 'checkpoint');
   }
   let raw: unknown;
   try {
     raw = JSON.parse(text.slice(start, end + 1));
   } catch {
-    throw new Error(
-      'JSON de checkpoint inválido no fechamento do turno — run re-tentado pela fila',
-    );
+    throw new ModelCallError('checkpoint_invalid', 'checkpoint');
   }
   const parsed = checkpointContentSchema.safeParse(raw);
   if (!parsed.success) {
-    const issues = parsed.error.issues
-      .map((i) => `${i.path.join('.') || '(raiz)'}: ${i.code}`)
-      .join('; ');
-    throw new Error(
-      `checkpoint do fechamento com shape inválido (${issues}) — run re-tentado pela fila`,
-    );
+    throw new ModelCallError('checkpoint_invalid', 'checkpoint');
   }
   return parsed.data;
 }

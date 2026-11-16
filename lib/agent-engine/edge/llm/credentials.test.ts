@@ -55,7 +55,7 @@ describe("resolveOrgLlmConfig — chave de plataforma por provider", () => {
   it("a credencial BYOK da org vence a do ambiente", async () => {
     const out = await resolveOrgLlmConfig(
       poolFake({ provider: "openai", default_model: "gpt-4o" }, [
-        { api_key_encrypted: "x", api_key_iv: "y", api_key_tag: "z" },
+        { provider: "openai", is_active: true, validated_at: "2026-01-01", api_key_encrypted: "x", api_key_iv: "y", api_key_tag: "z" },
       ]),
       { openaiApiKey: "sk-proj-plataforma" },
       "org-1",
@@ -83,7 +83,7 @@ describe("resolveOrgLlmConfig — a origem da chave acompanha o degrau", () => {
   it("credencial da organização → credencial_da_organizacao", async () => {
     const out = await resolveOrgLlmConfig(
       poolFake({ provider: "openrouter", default_model: "x" }, [
-        { api_key_encrypted: "x", api_key_iv: "y", api_key_tag: "z" },
+        { provider: "openrouter", is_active: true, validated_at: "2026-01-01", api_key_encrypted: "x", api_key_iv: "y", api_key_tag: "z" },
       ]),
       { openrouterApiKey: "sk-or-plataforma" },
       "org-1",
@@ -101,19 +101,17 @@ describe("resolveOrgLlmConfig — a origem da chave acompanha o degrau", () => {
     expect(out.origemDaChave).toBe("chave_da_instalacao");
   });
 
-  it("credencial ESCOLHIDA e revogada cai no .env — e o rótulo diz que a chave é da instalação", async () => {
+  it("credencial explicitamente escolhida e revogada falha sem fallback silencioso", async () => {
     // O degrau menos óbvio: quem configurou escolheu uma credencial da empresa,
     // e por isso acredita que a chave é dela. A linha deixou de estar ativa, a
     // consulta volta vazia, e o resolvedor — que não lança por isso — entrega a
     // chave do .env.
-    const out = await resolveOrgLlmConfig(
+    await expect(resolveOrgLlmConfig(
       poolFake({ provider: "openrouter" }, SEM_BYOK),
       { openrouterApiKey: "sk-or-plataforma" },
       "org-1",
       { provider: "openrouter", credentialId: "cred-revogada" },
-    );
-    expect(out.apiKey).toBe("sk-or-plataforma");
-    expect(out.origemDaChave).toBe("chave_da_instalacao");
+    )).rejects.toMatchObject({ code: "credential_unavailable" });
   });
 });
 
