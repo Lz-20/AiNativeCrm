@@ -1,0 +1,15 @@
+# Agent 模型绑定与失败边界
+
+此次变更属于核心运行内核，未新增数据库字段或扩展依赖。`model-binding.ts::resolveEffectiveAgentModelBinding` 为渠道、草稿预览、Workbench 与只读界面摘要提供同一绑定规则：组织默认模式使用组织 provider/model，不沿用草稿 credential_id；pinned 使用版本绑定。组织默认配置缺失不能回退到旧草稿。
+
+`credential-selection.ts::selectLlmCredential` 按组织和实际 provider 选凭据，显式ID要求存在、同provider、active且已验证；不满足时不解密、不退回其他key。默认凭据保留最新有效规则；最新时间无法区分时返回credential_ambiguous。没有组织凭据时仍保留同provider安装凭据回退。
+
+`PiAgentRuntime` 与兼容边界将错误停止、取消、流异常和空assistant分开；工具调用本身可以是合法的无可见文本assistant。`ModelCallError` 只持有固定类别、阶段、HTTP数值状态和停止原因，不能持有原始错误、请求、响应或SSE。HTTP边界不读取非成功响应正文。网关失败只写erro账本；现有运行面板的错误类别保持兼容。只有模型成功后才解析原Checkpoint Schema，格式失败统一checkpoint_invalid，不伪造空对象。
+
+草稿测试仍在App内联运行，GET同一路径只读配置元数据、不解密或调用模型。POST将request_id沿preview_run_id传入日志；其错误响应和数据库状态区分取消和失败。Workbench保存初始requestId到runtime_state，失败/取消保留固定类别；新类型模型错误直接进入可见终态，避免队列把同一模型失败再次自动请求。旧错误仍保留原队列行为。
+
+配置与测试页的EffectiveModelBinding通过安全GET显示实际模式、来源、模型及凭据资格。该资格是读取时快照，不代表上游key仍被供应商接受，运行时仍重新解析。组织默认模式隐藏不参与执行的版本模型编辑卡片。pinned编辑器保留原工作方式；组织配置仍通过既有组织模型页面修改。
+
+Living System Checklist：输入来自已鉴权组织/版本和组织模型；输出到凭据选择、Pi与模型账本；注册固定诊断并在Agent配置/测试及运行历史可见；入口仍为既有Agent页面。失败的后续动作是按固定类别修正配置后重新人工测试，不因错误自动发客户消息。人工审批及发送Guardrails不变。回归把错配、provider错误、取消和checkpoint错误送回测试集，维护人员据此修复配置；没有自动改写模型/策略的闭环。架构图见agent-binding-errors.architecture.json。
+
+验证分层：受控Provider/模拟SQL证明调用边界；真实VPS、真实模型、完整fresh-Supabase浏览器验收另列发布门禁，不由单元测试推定通过。

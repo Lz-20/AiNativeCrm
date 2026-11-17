@@ -64,6 +64,14 @@ const DIR = join(process.cwd(), ".github/workflows");
  * que desliga um job de entrega fica visível em code review.
  */
 const GATILHO_ESPERADO: Record<string, { condicao: string | null; efeito: string }> = {
+  "arm64-pr.yml::images": {
+    condicao: "github.repository == 'Lz-20/AiNativeCrm' && github.event.pull_request.head.repo.full_name == github.repository",
+    efeito: "Mede o head imutável de PR deste fork em ARM64 sem publicar imagens nem acessar a VPS; falha ou pulo reprova arm64-ok.",
+  },
+  "arm64-pr.yml::arm64-ok": {
+    condicao: "always()",
+    efeito: "Exige sucesso de toda a matriz ARM64, inclusive quando uma dependência falha ou é pulada; não publica nem faz deploy.",
+  },
   // Staging opcional deste fork: o operador pediu um fluxo independente da
   // publicação distribuída. Estes gates preservam a ativação manual inicial,
   // o main exato e o interruptor de push; nenhum substitui os checks existentes.

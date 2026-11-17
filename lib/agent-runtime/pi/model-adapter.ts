@@ -15,6 +15,7 @@ import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { allowlistedFetch, buildAllowlist } from "../../agent-engine/edge/egress";
 import { importNativeEsm, isTsxWorker } from "./native-import";
 import type { RuntimeModelBinding } from "../types";
+import { ModelCallError, modelHttpFailure, safeModelFailure } from "../errors";
 
 type PiProvider = {
   getModels(): readonly Model<Api>[];
@@ -32,6 +33,7 @@ function loadProvider<T>(specifier: string, bundled: () => Promise<T>): Promise<
 export interface ResolvedPiModel {
   model: Model<Api>;
   streamFn: StreamFn;
+  failure?: () => ModelCallError | undefined;
 }
 
 const DEFAULT_BASE_URL: Record<string, string> = {
@@ -147,9 +149,24 @@ export async function resolvePiModel(binding: RuntimeModelBinding): Promise<Reso
   const provider = await providerFor(binding.provider);
   const model = modelFor(provider, binding);
   const allowlist = buildAllowlist([model.baseUrl]);
-  const containedFetch = (input: RequestInfo | URL, init?: RequestInit) => {
+  let failure: ModelCallError | undefined;
+  const containedFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const target = typeof input === "string" || input instanceof URL ? input : input.url;
-    return allowlistedFetch(target, init, { allowlist });
+    try {
+      const response = await allowlistedFetch(target, init, { allowlist });
+      if (!response.ok) {
+        failure = modelHttpFailure(response.status);
+        // Do not parse/log a provider's error body: it may echo credentials or prompts.
+        await response.body?.cancel().catch(() => {});
+        throw failure;
+      }
+      return response;
+    } catch (error) {
+      failure = error instanceof ModelCallError ? error : init?.signal?.aborted
+        ? safeModelFailure(error, true)
+        : new ModelCallError("model_network_error", "provider_http", null, "error");
+      throw failure;
+    }
   };
 
   const streamFn: StreamFn = (requestedModel, context, options) =>
@@ -170,5 +187,5 @@ export async function resolvePiModel(binding: RuntimeModelBinding): Promise<Reso
         : {}),
     });
 
-  return { model, streamFn };
+  return { model, streamFn, failure: () => failure };
 }

@@ -10,6 +10,7 @@ import type { CoberturaPorFunil } from "./FunisDoAgente";
 import type { MaterialDoAcervo } from "./BasesDoAgente";
 import type { FunilDaResposta } from "@/hooks/pipelines/usePipelines";
 import { TestPanel } from "./TestPanel";
+import { EffectiveModelBinding } from "./EffectiveModelBinding";
 import { RunsTable } from "./RunsTable";
 import { UsoDasCapacidades } from "./UsoDasCapacidades";
 import { VersionHistory } from "./VersionHistory";
@@ -65,6 +66,8 @@ export function AgentTabs(props: Props) {
       </TabsList>
 
       <TabsContent value="configuration" className="m-0">
+        {(props.draft ?? props.published ?? props.base) && <EffectiveModelBinding
+          agentId={props.agent.id} versionId={(props.draft ?? props.published ?? props.base)!.id} />}
         <AgentForm
           mode="edit"
           agent={props.agent}

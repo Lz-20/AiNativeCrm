@@ -25,6 +25,7 @@ import type {
 } from "../types";
 import { resolvePiModel } from "./model-adapter";
 import type { ResolvedPiModel } from "./model-adapter";
+import { ModelCallError, safeModelFailure } from "../errors";
 
 type PiAgentCoreModule = typeof PiAgentCoreModuleType;
 type PiAiModule = typeof PiAiModuleType;
@@ -277,7 +278,7 @@ export class PiAgentRuntime implements AgentRuntime {
     // already aborted before prompt() can otherwise still produce one model
     // request. The CRM contract promises cancellation at the runtime boundary,
     // so reject before constructing the loop as well.
-    input.abortSignal?.throwIfAborted();
+    if (input.abortSignal?.aborted) throw new ModelCallError("model_aborted", "runtime", null, "aborted");
     if (input.contextProbe && (
       !input.contextProbe.id.trim() || input.contextProbe.id.length > 200 ||
       !input.contextProbe.userText.trim() || input.contextProbe.userText.length > 20_000
@@ -349,6 +350,7 @@ export class PiAgentRuntime implements AgentRuntime {
       }
     };
     const events: AgentRuntimeEvent[] = [];
+    let assistantProduced = false;
     const calls: RuntimeToolCall[] = [];
     const toolByName = new Map((input.tools ?? []).map((tool) => [tool.name, tool]));
     let turns = 0;
@@ -532,6 +534,7 @@ export class PiAgentRuntime implements AgentRuntime {
     };
 
     agent.subscribe(async (event) => {
+      if (event.type === "message_end" && event.message.role === "assistant") assistantProduced = true;
       const mapped = runtimeEvent(event);
       events.push(mapped);
       await input.onEvent?.(mapped);
@@ -574,6 +577,8 @@ export class PiAgentRuntime implements AgentRuntime {
       await queuePendingSteering();
       input.abortSignal?.throwIfAborted();
       await agent.prompt(input.prompt);
+    } catch (error) {
+      throw safeModelFailure(resolved.failure?.() ?? error, input.abortSignal?.aborted);
     } finally {
       input.abortSignal?.removeEventListener("abort", abort);
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -589,6 +594,18 @@ export class PiAgentRuntime implements AgentRuntime {
       }
     }
 
+    const rawAssistant = [...agent.state.messages].reverse().find((message) => message.role === "assistant") as AssistantMessage | undefined;
+    if (input.abortSignal?.aborted || rawAssistant?.stopReason === "aborted")
+      throw new ModelCallError("model_aborted", "runtime", null, "aborted");
+    if (rawAssistant?.stopReason === "error")
+      throw resolved.failure?.() ?? new ModelCallError("model_failed", "runtime", null, "error");
+    if (!assistantProduced || !rawAssistant)
+      throw resolved.failure?.() ?? new ModelCallError("model_empty_response", "runtime");
+    if (!["stop", "length", "toolUse"].includes(rawAssistant.stopReason) || !Array.isArray(rawAssistant.content))
+      throw new ModelCallError("model_stream_invalid", "runtime");
+    if (!rawAssistant.content.some((part) =>
+      (part.type === "text" && part.text.trim().length > 0) || part.type === "toolCall"))
+      throw new ModelCallError("model_empty_response", "runtime");
     const messages = agent.state.messages.flatMap((message) => {
       const converted = messageFromPi(message);
       return converted === null ? [] : [converted];

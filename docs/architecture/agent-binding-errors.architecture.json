@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Effective agent binding and model failure boundary",
+    "subtitle": "One model tuple; fixed diagnostics; no raw provider payload",
+    "output": "agent-binding-errors.html",
+    "quality_profile": "standard"
+  },
+  "lanes": [
+    { "id": "config", "label": "Organization-scoped configuration" },
+    { "id": "runtime", "label": "Execution" },
+    { "id": "ui", "label": "Operator surfaces" }
+  ],
+  "mainPath": ["editor", "binding", "credential", "pi", "ledger", "editor"],
+  "nodes": [
+    {
+      "id": "editor",
+      "lane": "ui",
+      "col": 0,
+      "type": "service",
+      "label": "Agent editor and test",
+      "sublabel": "EffectiveModelBinding / safe GET; test request ID"
+    },
+    {
+      "id": "binding",
+      "lane": "config",
+      "col": 1,
+      "type": "service",
+      "label": "Effective model binding",
+      "sublabel": "Organization defaults or pinned version; no mixed tuple"
+    },
+    {
+      "id": "credential",
+      "lane": "config",
+      "col": 2,
+      "type": "service",
+      "label": "Credential selection",
+      "sublabel": "Tenant/provider/status; deterministic latest or explicit failure"
+    },
+    {
+      "id": "pi",
+      "lane": "runtime",
+      "col": 3,
+      "type": "service",
+      "label": "Pi runtime",
+      "sublabel": "Model success / error / cancellation; HTTP status without body"
+    },
+    {
+      "id": "checkpoint",
+      "lane": "runtime",
+      "col": 4,
+      "type": "service",
+      "label": "Checkpoint or structured result",
+      "sublabel": "Only successful model output; unchanged schema validation"
+    },
+    {
+      "id": "ledger",
+      "lane": "runtime",
+      "col": 5,
+      "type": "service",
+      "label": "Run and LLM records",
+      "sublabel": "Fixed categories, correlation and elapsed time; no false ok"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": "editor",
+      "to": "binding",
+      "label": "reads current server-side projection"
+    },
+    {
+      "id": "e2",
+      "from": "binding",
+      "to": "credential",
+      "label": "provider/model/credential policy"
+    },
+    { "id": "e3", "from": "credential", "to": "pi", "label": "validated same-provider credential" },
+    { "id": "e4", "from": "pi", "to": "checkpoint", "label": "successful output only" },
+    { "id": "e5", "from": "pi", "to": "ledger", "label": "fixed error or cancellation" },
+    { "id": "e6", "from": "checkpoint", "to": "ledger", "label": "success or checkpoint_invalid" },
+    { "id": "e7", "from": "ledger", "to": "editor", "label": "visible status and request ID" },
+    { "id": "e8", "from": "credential", "to": "editor", "label": "safe credential eligibility" }
+  ],
+  "cards": []
+}

@@ -38,6 +38,22 @@ import catalogoChines from "./traducoes/zh-CN.json";
 type Traducoes = Record<string, Partial<Record<Exclude<Idioma, "pt-BR">, string>>>;
 
 export const DICIONARIO: Traducoes = {
+  "Carregando a configuração efetiva…": { es: "Cargando la configuración efectiva…" },
+  "Não foi possível carregar a configuração efetiva. Confira o modelo da organização.": { es: "No se pudo cargar la configuración efectiva. Revisa el modelo de la organización." },
+  "Modelo efetivo": { es: "Modelo efectivo" },
+  "Modo de vínculo": { es: "Modo de vinculación" },
+  "Origem da configuração": { es: "Origen de la configuración" },
+  "Configuração padrão da organização": { es: "Configuración predeterminada de la organización" },
+  "Configuração fixa da versão": { es: "Configuración fija de la versión" },
+  "Estado da credencial": { es: "Estado de la credencial" },
+  "Usando a credencial da instalação para o mesmo provedor": { es: "Usando la credencial de la instalación para el mismo proveedor" },
+  "Provedor da credencial corresponde": { es: "El proveedor de la credencial coincide" },
+  "Provedor da credencial não corresponde; execução bloqueada": { es: "El proveedor de la credencial no coincide; ejecución bloqueada" },
+  "Credencial padrão ambígua; execução bloqueada": { es: "Credencial predeterminada ambigua; ejecución bloqueada" },
+  "Nenhuma credencial disponível; execução bloqueada": { es: "Ninguna credencial disponible; ejecución bloqueada" },
+  "Este agente usa o modelo padrão da organização. O modelo e a credencial salvos na versão não são usados. Altere nas configurações de modelo da organização.": { es: "Este agente usa el modelo predeterminado de la organización. No se usan el modelo ni la credencial guardados en la versión. Cámbialos en la configuración del modelo de la organización." },
+  "Falha no teste": { es: "Error en la prueba" },
+  "ID da requisição": { es: "ID de la solicitud" },
   "Sobre a empresa": { es: "Sobre la empresa" },
   "Não foi possível carregar o enriquecimento.": { es: "No se pudo cargar el enriquecimiento." },
   "Sem dados de enriquecimento para este contato.": { es: "Sin datos de enriquecimiento para este contacto." },

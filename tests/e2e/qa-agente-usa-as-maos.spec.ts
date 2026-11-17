@@ -440,7 +440,7 @@ async function versaoComAsCapacidades(req: APIRequestContext, agenteId: string):
 async function criarVersao(
   req: APIRequestContext,
   agenteId: string,
-  credentialId: string,
+  credentialId: string | null,
   canalId: string,
   provider: string,
   modelo: string,

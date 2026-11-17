@@ -12,6 +12,7 @@ export async function testAgentVersion(
     agentId: string;
     versionId: string;
     runId: string;
+    requestId?: string;
     mode?: "inspect" | "act";
     abortSignal?: AbortSignal;
     budget?: { tokenBudget?: number | null; costBudgetCents?: number | null };
@@ -48,6 +49,7 @@ export async function testAgentVersion(
   );
   await runAgentPreview(deps, pool, {
     kind: "sandbox",
+    requestId: input.requestId,
     mode: input.mode,
     abortSignal: input.abortSignal,
     budget: input.budget,

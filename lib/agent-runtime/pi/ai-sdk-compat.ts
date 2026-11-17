@@ -12,6 +12,7 @@ import type {
   ToolEffect,
 } from "../types";
 import { createAgentRuntime } from "../factory";
+import { ModelCallError, safeModelFailure } from "../errors";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -284,7 +285,16 @@ export async function runPiAiSdkCall(input: PiAiSdkCallInput) {
     ...(input.onObservation ? { onObservation: input.onObservation } : {}),
     ...(input.onEvent ? { onEvent: input.onEvent } : {}),
     ...(input.shouldStopAfterTurn ? { shouldStopAfterTurn: input.shouldStopAfterTurn } : {}),
-  });
+  }).catch((error: unknown) => { throw safeModelFailure(error, input.abortSignal?.aborted); });
+
+  // Also guard injected runtimes: a failed/empty assistant is never an SDK success.
+  const assistant = [...result.messages].reverse().find((message) => message.role === "assistant");
+  const saved = assistant?.role === "assistant" ? asRecord(assistant.privateContinuation) : {};
+  if (saved.stopReason === "error") throw new ModelCallError("model_failed", "runtime", null, "error");
+  if (input.abortSignal?.aborted || saved.stopReason === "aborted")
+    throw new ModelCallError("model_aborted", "runtime", null, "aborted");
+  if (!result.finalText.trim() && result.toolCalls.length === 0)
+    throw new ModelCallError("model_empty_response", "runtime");
 
   return {
     text: result.finalText,

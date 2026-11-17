@@ -19,6 +19,8 @@ import {
   withMissionDirectionWriteFence,
 } from "@/lib/ai/agents/mission-direction-fence";
 import { workbenchToolEffect } from "@/lib/ai/agents/tool-effects";
+import { withFields } from "@/lib/agent-engine/obs/logger";
+import { ModelCallError } from "@/lib/agent-runtime/errors";
 import {
   ASK_INTERNAL_COLLEAGUE_TOOL, LIST_INTERNAL_COLLEAGUES_TOOL,
   createMissionQuestionTools,
@@ -65,6 +67,7 @@ export async function runWorkbenchStartJob(
   await beforeSideEffect();
 
   const runtime = run.runtime_state as {
+    requestId?: unknown;
     versionId?: unknown;
     agentOperationRevision?: unknown;
     replyContextRevision?: unknown;
@@ -236,6 +239,8 @@ export async function runWorkbenchStartJob(
     return;
   }
   const deps = requestTurnDeps();
+  deps.log = withFields(deps.log, { request_id: typeof runtime.requestId === "string" ? runtime.requestId : null,
+    workbench_run_id: runId });
   const abortController = new AbortController();
   let watching = true;
   const watcher = (async () => {
@@ -957,14 +962,14 @@ export async function runWorkbenchStartJob(
       });
       return;
     }
-    if (job.attempts >= job.max_attempts) {
+    if (job.attempts >= job.max_attempts || error instanceof ModelCallError) {
       await beforeSideEffect();
       const reason = error instanceof Error ? error.name : "runtime_error";
       await admin
         .from("ai_workbench_runs")
         .update({
-          status: "failed",
-          error_code: "runtime_failed",
+          status: error instanceof ModelCallError && error.code === "model_aborted" ? "cancelled" : "failed",
+          error_code: error instanceof ModelCallError ? error.code : "runtime_failed",
           error_summary: reason,
           completed_at: new Date().toISOString(),
         })
@@ -974,8 +979,8 @@ export async function runWorkbenchStartJob(
       await appendWorkbenchEvent(admin, {
         organizationId: job.organization_id,
         runId,
-        type: "run_failed",
-        payload: { code: "runtime_failed", errorType: reason },
+        type: error instanceof ModelCallError && error.code === "model_aborted" ? "run_cancelled" : "run_failed",
+        payload: { code: error instanceof ModelCallError ? error.code : "runtime_failed", errorType: reason },
       });
       return;
     }

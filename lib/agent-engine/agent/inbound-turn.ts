@@ -1245,6 +1245,7 @@ async function executarTurnoDoAgente(
   const runLog = withFields(deps.log, {
     job_id: job?.id ?? null,
     preview_run_id: preview?.runId,
+    request_id: preview?.requestId,
     tenant_id: tenantId,
     lead_id: leadId,
   });

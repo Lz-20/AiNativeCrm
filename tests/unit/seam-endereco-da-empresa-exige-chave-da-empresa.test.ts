@@ -93,7 +93,9 @@ function poolFalso(opts: {
     if (sql.includes("from ai_provider_credentials")) {
       return {
         rows: opts.empresaTemCredencial
-          ? [{ api_key_encrypted: "x", api_key_iv: "y", api_key_tag: "z" }]
+          ? [{ id: opts.credentialId ?? "cred-1", provider: sql.includes("id=$2") ? "openrouter" : params[1], is_active: true,
+            validated_at: "2026-09-01T00:00:00Z", created_at: "2026-09-01T00:00:00Z",
+            api_key_encrypted: "x", api_key_iv: "y", api_key_tag: "z" }]
           : [],
       };
     }
@@ -200,16 +202,16 @@ describe("endereço da empresa + chave da INSTALAÇÃO: a chave não sai", () =>
     );
   });
 
-  it("a credencial ESCOLHIDA no ponto, se revogada, também cai na chave da instalação — e é recusada", async () => {
-    // O degrau menos óbvio da escada: `credential_id` preenchido, mas a linha
-    // não está mais ativa/validada. O resolvedor não lança — cai no `.env`.
+  it("recusa a credencial explícita indisponível antes de usar qualquer chave da instalação", async () => {
+    // Um ID explícito sem credencial válida falha antes do runtime e não
+    // transforma a chave da instalação em substituta silenciosa.
     const { execucao, chamadas } = await chamar({
       baseUrl: ENDERECO_DA_EMPRESA,
       credentialId: "22222222-2222-4222-8222-222222222222",
       empresaTemCredencial: false,
     });
 
-    await expect(execucao).rejects.toBeInstanceOf(LlmEnderecoExigeChaveDaEmpresaError);
+    await expect(execucao).rejects.toMatchObject({ code: "credential_unavailable", stage: "credential" });
     expect(chamadas).toHaveLength(0);
   });
 

@@ -206,10 +206,11 @@ describe("PiAgentRuntime", () => {
     expect(filteredResult.events.some((event) => event.type === "model_context_consumed"))
       .toBe(false);
     const failed = runtimeWithFaux([fauxAssistantMessage("", { stopReason: "error" })]);
-    const failedResult = await failed.runtime.run({ systemPrompt: "CRM",
-      prompt: `负责人方向：${direction}`, model, contextProbe });
-    expect(failedResult.events.some((event) => event.type === "model_context_consumed"))
-      .toBe(false);
+    const failedEvent = vi.fn();
+    await expect(failed.runtime.run({ systemPrompt: "CRM",
+      prompt: `负责人方向：${direction}`, model, contextProbe, onEvent: failedEvent }))
+      .rejects.toMatchObject({ code: "model_failed" });
+    expect(failedEvent.mock.calls.some(([event]) => event.type === "model_context_consumed")).toBe(false);
   });
 
   it("keeps private reasoning out of the answer while preserving provider continuation", async () => {
@@ -440,10 +441,12 @@ describe("PiAgentRuntime", () => {
     const { runtime } = runtimeWithFaux([
       fauxAssistantMessage("", { stopReason: "error" }),
     ]);
-    const result = await runtime.run({ systemPrompt: "CRM", prompt: "核对商机", model,
-      steering: { poll: async () => [{ id: "direction-failed", content: "先核对新合同" }] } });
-    expect(result.events.some((event) => event.type === "steering_queued")).toBe(true);
-    expect(result.events.some((event) => event.type === "steering_consumed")).toBe(false);
+    const onEvent = vi.fn();
+    await expect(runtime.run({ systemPrompt: "CRM", prompt: "核对商机", model, onEvent,
+      steering: { poll: async () => [{ id: "direction-failed", content: "先核对新合同" }] } }))
+      .rejects.toMatchObject({ code: "model_failed" });
+    expect(onEvent.mock.calls.some(([event]) => event.type === "steering_queued")).toBe(true);
+    expect(onEvent.mock.calls.some(([event]) => event.type === "steering_consumed")).toBe(false);
   });
 
   it("does not acknowledge a direction removed by context transformation", async () => {

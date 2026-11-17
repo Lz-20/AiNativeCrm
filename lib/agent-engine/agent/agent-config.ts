@@ -14,10 +14,12 @@
  *     de fallback: playbook por ponteiro + settings.llm da org + knobs de env).
  */
 import type pg from 'pg';
+import { resolveEffectiveAgentModelBinding } from '@/lib/ai/agents/model-binding';
 
 import { lerJanelaDeAtendimento, type JanelaDeAtendimento } from './janela-de-atendimento';
 
 export interface PublishedAgentConfig {
+  modelBindingMode?: "organization_default" | "pinned";
   operationMode?: 'automatic' | 'assisted';
   pausedAt?: string | null;
   operationRevision?: string;
@@ -91,6 +93,8 @@ export interface PublishedAgentConfig {
 }
 
 interface Row {
+  model_binding_mode?: string;
+  organization_llm?: { provider?: unknown; default_model?: unknown } | null;
   operation_mode: 'automatic' | 'assisted';
   paused_at: string | null;
   operation_revision: string;
@@ -127,12 +131,8 @@ const SELECT_AGENT_CONFIG_COLUMNS = `a.operation_mode,a.paused_at,a.operation_re
             v.id as version_id,
             a.name as agent_name,
             v.system_prompt,
-            case when a.model_binding_mode = 'organization_default'
-              then coalesce(nullif(o.settings->'llm'->>'provider', ''), v.provider)
-              else v.provider end as provider,
-            case when a.model_binding_mode = 'organization_default'
-              then coalesce(nullif(o.settings->'llm'->>'default_model', ''), v.model)
-              else v.model end as model,
+            a.model_binding_mode, o.settings->'llm' as organization_llm,
+            v.provider, v.model,
             v.credential_id,
             v.max_steps,
             v.history_message_window,
@@ -158,6 +158,9 @@ const SELECT_AGENT_CONFIG_COLUMNS = `a.operation_mode,a.paused_at,a.operation_re
 /** Mapeamento Row (snake_case do banco) → PublishedAgentConfig, compartilhado
  * pelas duas variantes de loader (por channel_session e por agent id). */
 function mapAgentConfigRow(r: Row): PublishedAgentConfig {
+  const binding = resolveEffectiveAgentModelBinding({ mode: r.model_binding_mode,
+    provider: r.provider, model: r.model, credentialId: r.credential_id,
+    organizationLlm: r.organization_llm });
   const cfg = (r.config ?? {}) as { rag_top_k?: unknown; rag_similarity_threshold?: unknown };
   const ragTopK =
     typeof cfg.rag_top_k === 'number' &&
@@ -184,9 +187,10 @@ function mapAgentConfigRow(r: Row): PublishedAgentConfig {
     versionId: r.version_id,
     agentName: r.agent_name,
     systemPrompt: r.system_prompt,
-    provider: r.provider,
-    model: r.model,
-    credentialId: r.credential_id,
+    provider: binding.provider,
+    model: binding.model,
+    credentialId: binding.credentialId,
+    modelBindingMode: binding.bindingMode,
     maxSteps: r.max_steps,
     historyMessageWindow: r.history_message_window,
     historyTokenWindow: r.history_token_window,

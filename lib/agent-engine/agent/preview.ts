@@ -26,6 +26,7 @@ import type { AgentRuntimeEvent } from "@/lib/agent-runtime";
 import type { RuntimeMessage } from "@/lib/agent-runtime";
 
 export interface TurnPreview {
+  requestId?: string;
   kind: "sandbox" | "assisted";
   /** Inspect is strictly read/draft-only; act may stage CRM proposals. */
   mode?: "inspect" | "act";

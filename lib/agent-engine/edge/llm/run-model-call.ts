@@ -56,6 +56,7 @@ import {
   type ChaveDeOrcamento,
 } from "./orcamento";
 import { costCents } from "./pricing";
+import { ModelCallError } from "@/lib/agent-runtime/errors";
 import { chaveDeOrcamentoDaInstalacao } from "../../../instalacao/comportamento";
 import { buildStablePrefix } from "./stable-prefix";
 import {
@@ -362,9 +363,15 @@ async function aplicarOrcamento(d: {
     ]);
     linha = rows[0];
   } catch (err) {
+    const sqlstate = (err as { code?: unknown } | null)?.code;
     d.log?.warn("llm: consulta de orçamento falhou — a chamada SEGUE sem teto", {
       ...comum,
-      ...normalizarErro(err),
+      stage: "budget",
+      error_code: "budget_query_failed",
+      database_error_code:
+        sqlstate === "42P01" || sqlstate === "42703" || sqlstate === "57014"
+          ? sqlstate
+          : "unknown",
     });
     return;
   }
@@ -559,7 +566,12 @@ export async function runModelCall(
 
   // A config da org é lida ANTES da decisão porque o resolvedor precisa dela
   // como último degrau da precedência (o padrão, quando ninguém mais opinou).
-  const padrao = await resolveOrgLlmConfig(db, cfg, input.tenantId, input.llmOverride);
+  const padrao = await resolveOrgLlmConfig(db, cfg, input.tenantId, input.llmOverride).catch((error: unknown) => {
+    const diagnostic = normalizarErro(error);
+    deps.log?.error("llm: configuração recusada", { ...diagnostic, stage: "credential",
+      credential_provider_match: error instanceof ModelCallError && error.code === "credential_provider_mismatch" ? false : null, purpose });
+    throw error;
+  });
 
   // O painel de provedores entra AQUI, e é o que faz `purpose` deixar de ser
   // só um rótulo de custo e virar decisão. Sem binding configurado, `decisao`
@@ -608,6 +620,9 @@ export async function runModelCall(
     : padrao;
 
   const model = decisao.modelId;
+  deps.log?.info("llm: configuração efetiva", {
+    provider: config.provider, model, purpose, stage: "binding_resolved", credential_provider_match: true,
+  });
   if (model === null || model === undefined) {
     throw new Error(
       "modelo LLM não definido — configure o ponto no painel de provedores, " +
@@ -806,6 +821,9 @@ export async function runModelCall(
       model,
       origem_da_escolha: decisao.origem,
       ...normalizarErro(err),
+      stage: err instanceof ModelCallError ? err.stage : "runtime",
+      stop_reason: err instanceof ModelCallError ? err.stopReason : null,
+      latency_ms: Date.now() - startedAt,
     });
     throw err;
   }
@@ -912,6 +930,17 @@ export function normalizarErro(err: unknown): {
   error_message: string;
   http_status: number | null;
 } {
+  if (err instanceof ModelCallError) {
+    // Preserve the existing runs-panel categories while retaining the typed runtime code.
+    const aliases: Partial<Record<ModelCallError["code"], string>> = {
+      model_http_401: "credencial_recusada", model_http_403: "credencial_recusada", credential_rejected: "credencial_recusada",
+      model_http_404: "modelo_inexistente", model_not_found: "modelo_inexistente",
+      model_http_429: "limite_ou_saldo", model_rate_limited: "limite_ou_saldo",
+      model_http_5xx: "provedor_indisponivel", model_network_error: "provedor_indisponivel", model_unavailable: "provedor_indisponivel",
+    };
+    return { error_code: aliases[err.code] ?? err.code,
+      error_message: `Falha de IA: ${err.code}.`, http_status: err.httpStatus };
+  }
   const bruto = err instanceof Error ? err.message : String(err);
   const status =
     (err as { statusCode?: number; status?: number })?.statusCode ??
@@ -961,17 +990,9 @@ export function normalizarErro(err: unknown): {
 
   return {
     error_code: codigo,
-    // Redigida E truncada. O comentário anterior dizia "sem
-    // prompt/resposta/chave" e o único tratamento era o `slice` — a garantia
-    // estava escrita e não existia, que é pior que não existir e ninguém
-    // achar que existe.
-    //
-    // A mensagem crua do provedor vai para `llm_calls.error_message`, sai no
-    // JSON de `GET /api/v1/ai/runs` e é renderizada na tela de Execuções para
-    // qualquer `manager` da organização. Um endpoint OpenAI-compatível
-    // apontado por `base_url` — caminho que o painel de provedores abre — pode
-    // ecoar no corpo de erro o header de autorização ou o prompt recebido.
-    error_message: redigirMensagemDoProvedor(bruto),
+    // Only a fixed category reaches the runs API/log. A regex scrub cannot
+    // safely preserve arbitrary provider prose, which may echo a prompt or SSE.
+    error_message: `Falha de IA: ${codigo}.`,
     http_status: typeof status === "number" ? status : null,
   };
 }

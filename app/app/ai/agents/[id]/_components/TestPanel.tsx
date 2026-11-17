@@ -25,6 +25,7 @@ import type { AgentRow } from "@/hooks/ai/useAgent";
 import type { AgentVersionRow } from "@/hooks/ai/useAgentVersions";
 
 import { RunTrace } from "./RunTrace";
+import { EffectiveModelBinding } from "./EffectiveModelBinding";
 
 interface Props {
   agent: AgentRow;
@@ -141,6 +142,7 @@ export function TestPanel({ agent, draft, published, readOnly }: Props) {
   const [contactPhone, setContactPhone] = React.useState("");
   const [pending, setPending] = React.useState(false);
   const [result, setResult] = React.useState<TestResponse["data"] | null>(null);
+  const [failure, setFailure] = React.useState<{ code: string; requestId: string } | null>(null);
 
   if (!target) {
     return (
@@ -163,6 +165,7 @@ export function TestPanel({ agent, draft, published, readOnly }: Props) {
     if (!target) return;
     setPending(true);
     setResult(null);
+    setFailure(null);
     try {
       const body: Record<string, unknown> = { sample_message: message.trim() };
       if (contactName.trim() || contactPhone.trim()) {
@@ -191,6 +194,7 @@ export function TestPanel({ agent, draft, published, readOnly }: Props) {
       toast.success(t("Teste executado."));
     } catch (err) {
       if (err instanceof ApiError) {
+        setFailure({ code: err.code, requestId: err.requestId });
         toast.error(t(err.message) || `${t("Erro")}: ${err.code}`);
       } else {
         toast.error(t("Erro inesperado."));
@@ -209,11 +213,13 @@ export function TestPanel({ agent, draft, published, readOnly }: Props) {
           </p>
           <div className="flex items-center gap-2 text-sm">
             <Badge variant="outline">{versionLabel}</Badge>
-            <span className="font-mono text-xs">
-              {target.provider} / {target.model}
-            </span>
           </div>
         </div>
+
+        <EffectiveModelBinding agentId={agent.id} versionId={target.id} />
+        {failure && <p role="alert" className="text-sm text-destructive">
+          {t("Falha no teste")}：{failure.code} · {t("ID da requisição")}：{failure.requestId}
+        </p>}
 
         <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs">
           <p className="font-medium text-amber-700 dark:text-amber-400">

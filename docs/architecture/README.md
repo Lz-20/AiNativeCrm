@@ -1,5 +1,9 @@
 # Mapas de arquitetura
 
+Agent model binding and failure boundaries: [contract](agent-binding-errors.md) and
+[source map](agent-binding-errors.architecture.json). The editor and execution share the effective binding;
+provider errors must not become successful LLM records or checkpoint parsing failures.
+
 ## Regra única deste diretório: o JSON é a FONTE; o HTML é DERIVADO
 
 Cada mapa tem um `*.json` (fonte) e pode ter um `*.html` (render).

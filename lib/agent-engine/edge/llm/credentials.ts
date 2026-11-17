@@ -20,6 +20,7 @@ import { z } from "zod";
 
 import { RUNTIME_EVALUATION_MODE, type RuntimeMode } from "@/lib/agent-runtime";
 import { byteaToBuffer, decryptKey } from "@/lib/crypto/aes_gcm";
+import { selectLlmCredential } from "./credential-selection";
 import {
   LIMIAR_PADRAO_PCT,
   normalizarChaveDeOrcamento,
@@ -344,38 +345,12 @@ export async function resolveOrgLlmConfig(
   // Credencial: a ESCOLHIDA na versão publicada quando houver (ainda exigindo
   // ativa+validada — publish valida, mas a credencial pode ser revogada depois);
   // senão a mais recente ativa/validada do provider. Sempre escopada pela org.
-  const { rows: credRows } = override?.credentialId
-    ? await db.query<{
-        api_key_encrypted: unknown;
-        api_key_iv: unknown;
-        api_key_tag: unknown;
-      }>(
-        `select api_key_encrypted, api_key_iv, api_key_tag
-         from ai_provider_credentials
-         where organization_id = $1 and id = $2
-           and is_active and validated_at is not null
-         limit 1`,
-        [organizationId, override.credentialId],
-      )
-    : await db.query<{
-        api_key_encrypted: unknown;
-        api_key_iv: unknown;
-        api_key_tag: unknown;
-      }>(
-        `select api_key_encrypted, api_key_iv, api_key_tag
-         from ai_provider_credentials
-         where organization_id = $1 and provider = $2
-           and is_active and validated_at is not null
-         order by created_at desc
-         limit 1`,
-        [organizationId, provider],
-      );
+  const cred = await selectLlmCredential(db, organizationId, provider, override?.credentialId);
 
   let apiKey: string;
   // Atribuída junto com a chave, em cada degrau: a origem é um fato de QUAL
   // ramo escolheu a chave, e só este ponto sabe isso sem adivinhar.
   let origemDaChave: OrigemDaChaveLlm;
-  const cred = credRows[0];
   if (cred !== undefined) {
     apiKey = decryptKey({
       ciphertext: byteaToBuffer(cred.api_key_encrypted),

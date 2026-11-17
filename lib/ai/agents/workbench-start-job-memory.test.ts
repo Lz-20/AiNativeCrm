@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { JobRow } from "@/lib/agent-engine/queue/queue";
 import type { Pool } from "pg";
+import { ModelCallError } from "@/lib/agent-runtime/errors";
 
 const mocks = vi.hoisted(() => ({
   model: vi.fn(),
@@ -10,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   admin: vi.fn(),
   collaboration: vi.fn(),
   selectPlan: vi.fn(),
+  update: vi.fn(),
 }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: mocks.admin }));
 vi.mock("@/lib/agent-engine/agent/pi-turn-execution", () => ({
@@ -95,6 +97,8 @@ beforeEach(() => {
             ? []
             : null;
       const builder = {
+        update: (value: unknown) => { mocks.update(value); return builder; },
+        in: () => builder,
         select: () => builder,
         eq: () => builder,
         maybeSingle: async () => ({ data, error: null }),
@@ -107,6 +111,15 @@ beforeEach(() => {
 });
 
 describe("Workbench initial organization memory", () => {
+  it.each(["model_failed", "model_aborted"] as const)("persists typed %s without fake tool successes", async (code) => {
+    mocks.model.mockRejectedValueOnce(new ModelCallError(code, "runtime", null, code === "model_aborted" ? "aborted" : "error"));
+    await runWorkbenchStartJob(job, pool, "worker");
+    expect(mocks.update).toHaveBeenCalledWith(expect.objectContaining({
+      status: code === "model_aborted" ? "cancelled" : "failed", error_code: code,
+    }));
+    expect(mocks.event.mock.calls.some((call) => (call as unknown[])[1] &&
+      ((call as unknown[])[1] as { type: string }).type === "tool_completed")).toBe(false);
+  });
   it("injects published policies before any model/tool decision and emits body-free provenance", async () => {
     await expect(runWorkbenchStartJob(job, pool, "worker1")).rejects.toThrow(
       "stop_after_model_input",
