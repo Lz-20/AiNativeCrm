@@ -1,0 +1,148 @@
+name: arm64-pr
+
+# Reuses the production Dockerfiles; never publishes or accesses the VPS.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  images:
+    if: github.repository == 'Lz-20/AiNativeCrm' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    concurrency:
+      group: arm64-pr-${{ matrix.service }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: app
+            dockerfile: Dockerfile
+          - service: worker
+            dockerfile: Dockerfile.worker
+          - service: scheduler
+            dockerfile: Dockerfile.scheduler
+    env:
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+      SERVICE: ${{ matrix.service }}
+      TEST_DB_IMAGE: pgvector/pgvector:pg17
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Verify native ARM64 and exact source
+        id: source
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = aarch64
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          echo "schema=$(python3 scripts/staging-ci.py schema-fingerprint "$SOURCE_SHA")" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/preparar-node
+        if: matrix.service == 'app'
+        timeout-minutes: 5
+      - name: Full TypeScript project on ARM64
+        if: matrix.service == 'app'
+        run: pnpm typecheck
+      - name: Agent regression on ARM64 without live providers
+        if: matrix.service == 'app'
+        run: >-
+          pnpm exec vitest run lib/agent-runtime lib/ai/agents
+          lib/agent-engine/agent lib/agent-engine/edge/llm/credentials.test.ts
+          tests/unit/llm-calls-registra-falha.test.ts
+          tests/unit/agent-llm-capabilities.test.ts
+          tests/unit/ponte-do-agente-passa-o-escopo.test.ts
+          tests/unit/redis-malformado-nao-vira-ida-a-rede.test.ts
+          tests/unit/knobs-da-versao-publicada-sao-aplicados.test.ts
+          tests/unit/i18n-espanhol-cobre-a-tela.test.ts
+          tests/unit/orcamento-gate-executa-o-veredito.test.ts
+          tests/unit/qa-preview-controlado.test.ts
+          tests/unit/catalogo-de-idioma-tem-forma.test.ts
+          tests/unit/seam-endereco-da-empresa-exige-chave-da-empresa.test.ts
+          lib/supabase/keys-transport.test.ts lib/supabase/urls.test.ts
+          'app/app/ai/agents/[id]/_components/EffectiveModelBinding.test.tsx'
+          'app/api/v1/ai/agents/[id]/versions/[vid]/test/route.test.ts'
+          'app/api/v1/ai/workbench/runs/route.test.ts'
+      - name: Database permissions and schema invariants on ARM64
+        if: matrix.service == 'app'
+        run: pnpm test:db
+      - name: Existing-data database update invariants on ARM64
+        if: matrix.service == 'app'
+        run: pnpm test:db:update
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - name: Standard production image build without publication
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/arm64
+          push: false
+          load: true
+          tags: ainativecrm-${{ matrix.service }}:arm64-pr
+          build-args: |
+            APP_VERSION=${{ env.SOURCE_SHA }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/Lz-20/AiNativeCrm
+            org.opencontainers.image.revision=${{ env.SOURCE_SHA }}
+            io.ainativecrm.schema-sha256=${{ steps.source.outputs.schema }}
+      - name: Assert image architecture, revision and schema fingerprint
+        env:
+          SCHEMA: ${{ steps.source.outputs.schema }}
+        run: |
+          set -euo pipefail
+          docker image inspect "ainativecrm-$SERVICE:arm64-pr" > image.json
+          python3 - <<'PY'
+          import json, os
+          image = json.load(open('image.json'))[0]
+          labels = image['Config']['Labels']
+          assert image['Architecture'] == 'arm64'
+          assert image['Os'] == 'linux'
+          assert 'APP_VERSION=' + os.environ['SOURCE_SHA'] in image['Config']['Env']
+          assert labels['org.opencontainers.image.revision'] == os.environ['SOURCE_SHA']
+          assert labels['io.ainativecrm.schema-sha256'] == os.environ['SCHEMA']
+          assert labels['org.opencontainers.image.source'] == 'https://github.com/Lz-20/AiNativeCrm'
+          evidence = dict(service=os.environ['SERVICE'], source_sha=os.environ['SOURCE_SHA'],
+              schema_sha256=os.environ['SCHEMA'], architecture=image['Architecture'],
+              os=image['Os'], local_image_id=image['Id'], published=False)
+          json.dump(evidence, open('arm64-evidence.json', 'w'), indent=2)
+          PY
+      - name: Assert real Agent Test and Workbench route artifacts
+        if: matrix.service == 'app'
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --entrypoint node ainativecrm-app:arm64-pr -e '
+            const fs = require("node:fs");
+            const manifest = JSON.parse(fs.readFileSync("/app/.next/server/app-paths-manifest.json", "utf8"));
+            const routes = [
+              "/api/v1/ai/agents/[id]/versions/[vid]/test/route",
+              "/api/v1/ai/workbench/runs/route",
+              "/app/ai/workbench/page",
+            ];
+            for (const route of routes) {
+              if (!manifest[route] || !fs.existsSync("/app/.next/server/" + manifest[route])) {
+                throw new Error("Missing route artifact: " + route);
+              }
+            }
+            console.log(JSON.stringify({ routes, artifacts_present: true }));
+          ' > arm64-routes.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: arm64-pr-${{ matrix.service }}-${{ env.SOURCE_SHA }}
+          path: arm64-*.json
+          if-no-files-found: error
+          retention-days: 30
+
+  arm64-ok:
+    if: always()
+    needs: images
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - name: Require every ARM64 image and validation job to succeed
+        env:
+          RESULT: ${{ needs.images.result }}
+        run: test "$RESULT" = success
