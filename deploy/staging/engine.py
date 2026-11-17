@@ -324,8 +324,11 @@ class RootRuntime:
         secure_path(INSTALL/'catalog_policy.py')
         spec=importlib.util.spec_from_file_location('installed_catalog_policy',INSTALL/'catalog_policy.py')
         module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
-        policy=read_root_json(policy_path)
-        try:module.validate_policy(policy,state['approved_catalog_sha256'])
+        secure_path(policy_path,mode=0o600)
+        need(policy_path.stat().st_size<=1024*1024,'catalog_policy_size')
+        try:
+            policy=module.parse_policy(policy_path.read_bytes())
+            module.validate_policy(policy,state['approved_catalog_sha256'])
         except module.CatalogError as error:raise Failure(error.code) from None
         need(proof.get('catalog_policy_sha256')==module.digest(policy),'catalog_policy_proof_version')
         evidence=json.loads((directory/'evidence.json').read_bytes())
@@ -346,7 +349,7 @@ class RootRuntime:
         need(isinstance(observed,dict) and observed==evidence.get('partition_validation')
              and observed.get('observed_at')==evidence.get('started_at'),'partition_proof_integrity')
         try:
-            actual=module.evaluate(catalog,topology,policy,observed['observed_at'],observed.get('source_contract'),
+            actual=module.evaluate(catalog,topology,policy,observed.get('observed_at'),observed.get('source_contract'),
                                    observed.get('previous_partition_names'))
         except module.CatalogError as error:raise Failure(error.code) from None
         need(actual==observed and actual['raw_catalog_sha256']==proof.get('source_catalog_sha256')

@@ -134,8 +134,11 @@ def catalog_extension():
     spec = importlib.util.spec_from_file_location("reviewed_catalog_policy", module_path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    policy = json.loads(CATALOG_POLICY.read_text())
-    module.validate_policy(policy, policy.get("legacy_catalog_sha256"))
+    try:
+        policy = module.parse_policy(CATALOG_POLICY.read_bytes())
+        module.validate_policy(policy, policy.get("legacy_catalog_sha256"))
+    except module.CatalogError as error:
+        raise VerificationError(error.code) from None
     return module, policy
 
 
@@ -153,23 +156,48 @@ def realtime_origin(module):
 def previous_partition_names(module, policy):
     """Use only the last successfully verified root proof; never a caller's name list."""
     path = STATE_ROOT / "backup-attestation.json"
-    if not path.exists():
-        return policy["initial_partitions"]
+    require(path.exists(), "prior_proof_missing")
     info = path.lstat()
     require(not path.is_symlink() and stat.S_ISREG(info.st_mode) and info.st_uid == 0
-            and stat.S_IMODE(info.st_mode) == 0o600 and info.st_nlink == 1, "prior_proof_owner")
-    proof = json.loads(path.read_text())
-    if proof.get("catalog_policy_sha256") != module.digest(policy):
-        # A legacy proof is allowed only at the explicit policy migration boundary.
-        require("catalog_policy_sha256" not in proof, "prior_policy_changed")
-        return policy["initial_partitions"]
+            and stat.S_IMODE(info.st_mode) == 0o600 and info.st_nlink == 1
+            and info.st_size <= 1024 * 1024, "prior_proof_owner")
+    def decoded(raw):
+        try:
+            return module.parse_policy(raw)
+        except module.CatalogError:
+            raise VerificationError("prior_proof_json") from None
+    proof = decoded(path.read_bytes())
     directory = Path(proof.get("backup_directory", ""))
     require(directory.is_absolute() and directory.resolve() == directory
             and directory.parent == STATE_ROOT / "backups", "prior_proof_directory")
     private_dir(directory)
-    require(file_hash(directory / "evidence.json") == proof.get("evidence_sha256"), "prior_proof_integrity")
-    prior_evidence = json.loads((directory / "evidence.json").read_text())
+    def evidence_file(name):
+        target = directory / name
+        info = target.lstat()
+        require(not target.is_symlink() and stat.S_ISREG(info.st_mode) and info.st_uid == 0
+                and stat.S_IMODE(info.st_mode) == 0o600 and info.st_nlink == 1
+                and info.st_size <= 16 * 1024 * 1024, "prior_evidence_owner_or_size")
+        return target
+    evidence_path = evidence_file("evidence.json")
+    require(file_hash(evidence_path) == proof.get("evidence_sha256"), "prior_proof_integrity")
+    prior_evidence = decoded(evidence_path.read_bytes())
     require(proof.get("restore_verified") is True and proof.get("differences") == 0, "prior_restore_not_verified")
+    require(proof.get("source_system_identifier") == SOURCE_SYSTEM_ID and proof.get("source_database") == "postgres"
+            and prior_evidence.get("source_container_id") == SOURCE_CONTAINER_ID
+            and prior_evidence.get("source_database_writes") is False
+            and all(prior_evidence.get(k) is True for k in ("restore_verified", "restart_verified", "storage_verified"))
+            and prior_evidence.get("differences") == 0, "prior_proof_source_or_restore")
+    if proof.get("catalog_policy_sha256") != module.digest(policy):
+        # Bootstrap only from an authenticated, complete legacy restore proof.
+        require("catalog_policy_sha256" not in proof and "partition_validation" not in proof,
+                "prior_policy_changed")
+        catalog_path = evidence_file("catalog-source.json")
+        receipts = [entry for entry in prior_evidence.get("files", []) if entry.get("file") == "catalog-source.json"]
+        require(len(receipts) == 1 and receipts[0].get("sha256") == file_hash(catalog_path)
+                and receipts[0].get("bytes") == catalog_path.stat().st_size
+                and canonical_hash(decoded(catalog_path.read_bytes())) == proof.get("source_catalog_sha256"),
+                "prior_legacy_catalog_integrity")
+        return policy["initial_partitions"]
     observation = proof.get("partition_validation")
     require(isinstance(observation, dict) and observation == prior_evidence.get("partition_validation")
             and observation.get("context") == "source"

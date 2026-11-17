@@ -43,6 +43,26 @@ def digest(value):
                                      ensure_ascii=False).encode()).hexdigest()
 
 
+def parse_policy(raw):
+    """A reviewer must never see a different key value from the parser."""
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            need(key not in result, "catalog_policy_duplicate_key")
+            result[key] = value
+        return result
+    def constant(_value):
+        raise CatalogError("catalog_policy_nonfinite_number")
+    try:
+        value = json.loads(raw, object_pairs_hook=pairs, parse_constant=constant)
+    except (ValueError, TypeError, UnicodeError) as error:
+        if isinstance(error, CatalogError):
+            raise
+        raise CatalogError("catalog_policy_json") from None
+    need(isinstance(value, dict), "catalog_policy_format")
+    return value
+
+
 def date_of(name):
     match = NAME.fullmatch(name) if isinstance(name, str) else None
     need(match is not None, "dynamic_partition_name")
@@ -196,7 +216,8 @@ def check_template(template):
 
 
 def validate_policy(policy, legacy_hash):
-    need(isinstance(policy, dict) and set(policy) == POLICY_KEYS and policy["format"] == 1, "catalog_policy_format")
+    need(isinstance(policy, dict) and set(policy) == POLICY_KEYS and type(policy["format"]) is int
+         and policy["format"] == 1, "catalog_policy_format")
     need(policy["source_contract"] == SOURCE_CONTRACT, "partition_source_unreviewed")
     need(isinstance(legacy_hash, str) and HASH.fullmatch(legacy_hash) is not None
          and policy["legacy_catalog_sha256"] == legacy_hash, "catalog_policy_legacy_anchor")

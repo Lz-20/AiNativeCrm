@@ -6,6 +6,8 @@ import importlib.util
 import json
 from pathlib import Path
 import tempfile
+import stat
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -90,6 +92,14 @@ class CatalogPolicyTests(unittest.TestCase):
 
     def test_identical_catalog_passes(self):
         self.assertEqual(self.evaluate()["static_catalog_sha256"], self.policy["static_catalog_sha256"])
+
+    def test_policy_json_rejects_duplicate_keys_nonfinite_values_and_boolean_version(self):
+        for raw in ['{"format":1,"format":1}', '{"nested":{"x":1,"x":2}}', '{"value":NaN}', '[]']:
+            with self.subTest(raw=raw), self.assertRaises(m.CatalogError):
+                m.parse_policy(raw)
+        self.policy["format"] = True
+        with self.assertRaisesRegex(m.CatalogError, "catalog_policy_format"):
+            self.evaluate()
 
     def test_only_validated_new_day_is_allowed(self):
         original = self.evaluate()
@@ -287,13 +297,25 @@ class RootProofTests(unittest.TestCase):
     def write_evidence(self):
         (self.root / "evidence.json").write_text(json.dumps(self.evidence))
 
-    def check(self):
-        with patch.object(e, "INSTALL", self.install), patch.object(e, "secure_path"), \
-                patch.object(e, "read_root_json", return_value=self.policy):
-            return self.runtime.verify_catalog_policy(self.proof, self.state, self.root, self.root / "catalog-policy.json")
+    def check(self, raw_policy=None):
+        path = self.root / "catalog-policy.json"
+        path.write_text(json.dumps(self.policy) if raw_policy is None else raw_policy)
+        with patch.object(e, "INSTALL", self.install), patch.object(e, "secure_path"):
+            return self.runtime.verify_catalog_policy(self.proof, self.state, self.root, path)
 
     def test_root_gate_recalculates_successful_proof(self):
         self.check()
+
+    def test_root_gate_uses_duplicate_rejecting_parser(self):
+        with self.assertRaisesRegex(e.Failure, "duplicate_key"):
+            self.check('{"format":1,"format":1}')
+
+    def test_missing_observation_timestamp_is_fixed_failure_not_key_error(self):
+        self.observed.pop("observed_at")
+        self.evidence.pop("started_at")
+        self.write_evidence()
+        with self.assertRaisesRegex(e.Failure, "catalog_timestamp"):
+            self.check()
 
     def test_root_gate_rejects_restore_differences_even_if_policy_hash_matches(self):
         self.evidence["differences"] = 1
@@ -393,6 +415,78 @@ class RootProofTests(unittest.TestCase):
             with self.assertRaisesRegex(e.Failure, "live_catalog_policy_changed"):
                 self.runtime.ensure_backup(self.state)
             audit.assert_not_called()
+
+
+class PartitionHistoryTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.directory = self.root / "backups" / "fixture"
+        self.directory.mkdir(parents=True)
+        self.catalog, self.topology, self.policy = fixture()
+        self.catalog_path = self.directory / "catalog-source.json"
+        self.catalog_path.write_text(json.dumps(self.catalog))
+        self.evidence = {"source_container_id": b.SOURCE_CONTAINER_ID, "source_database_writes": False,
+                         "restore_verified": True, "restart_verified": True, "storage_verified": True,
+                         "differences": 0, "files": [{"file": "catalog-source.json",
+                             "sha256": b.file_hash(self.catalog_path), "bytes": self.catalog_path.stat().st_size}]}
+        self.proof = {"source_system_identifier": b.SOURCE_SYSTEM_ID, "source_database": "postgres",
+                      "restore_verified": True, "differences": 0, "backup_directory": str(self.directory),
+                      "source_catalog_sha256": m.digest(self.catalog)}
+
+    def save(self):
+        evidence_path = self.directory / "evidence.json"
+        evidence_path.write_text(json.dumps(self.evidence))
+        self.proof["evidence_sha256"] = b.file_hash(evidence_path)
+        (self.root / "backup-attestation.json").write_text(json.dumps(self.proof))
+
+    def read_history(self, *, owner=0, mode=0o600):
+        # Only metadata is simulated for portable Windows/non-root CI fixtures.
+        # All file content, receipts and canonical hashes are actually read.
+        def metadata(path):
+            info = path.stat()
+            return SimpleNamespace(st_uid=owner, st_mode=stat.S_IFREG | mode,
+                                   st_nlink=1, st_size=info.st_size)
+        with patch.object(b, "STATE_ROOT", self.root), patch.object(b, "private_dir"), \
+                patch.object(Path, "lstat", metadata):
+            return b.previous_partition_names(m, self.policy)
+
+    def test_legacy_bootstrap_requires_complete_authenticated_restore(self):
+        self.save()
+        self.assertEqual(self.read_history(), self.policy["initial_partitions"])
+
+    def test_missing_history_never_resets_to_initial_names(self):
+        with patch.object(b, "STATE_ROOT", self.root):
+            with self.assertRaisesRegex(b.VerificationError, "prior_proof_missing"):
+                b.previous_partition_names(m, self.policy)
+
+    def test_corrupt_legacy_receipt_or_wrong_source_is_rejected(self):
+        self.save()
+        self.catalog_path.write_text("{}")
+        with self.assertRaisesRegex(b.VerificationError, "legacy_catalog_integrity"):
+            self.read_history()
+        self.proof["source_system_identifier"] = "other-cluster"
+        self.save()
+        with self.assertRaisesRegex(b.VerificationError, "source_or_restore"):
+            self.read_history()
+
+    def test_incomplete_restore_and_wrong_file_permissions_fail_closed(self):
+        self.evidence["storage_verified"] = False
+        self.save()
+        with self.assertRaisesRegex(b.VerificationError, "source_or_restore"):
+            self.read_history()
+        self.evidence["storage_verified"] = True
+        self.save()
+        for change in ({"owner": 1000}, {"mode": 0o644}):
+            with self.subTest(change=change), self.assertRaisesRegex(b.VerificationError, "prior_proof_owner"):
+                self.read_history(**change)
+
+    def test_policy_history_cannot_silently_switch_policy(self):
+        self.proof["catalog_policy_sha256"] = "0" * 64
+        self.save()
+        with self.assertRaisesRegex(b.VerificationError, "prior_policy_changed"):
+            self.read_history()
 
 
 if __name__ == "__main__":

@@ -34,6 +34,10 @@ snapshot atual. Não escreve arquivo nem torna a base atual aprovada.
   após o prazo revisado de três dias, comparadas à última prova root verificada
   (ou ao conjunto inicial explicitamente revisado). A história integra cada
   evidência e nunca vem de um argumento da requisição SSH.
+  Na primeira ativação, o conjunto inicial só é usado após autenticar o último
+  atestado legado, sua origem, restauração completa e recibo do Catalog original
+  desse backup. História ausente/corrompida ou troca de política falha fechada.
+  O JSON da política recusa chaves duplicadas e números não finitos.
 - Todo o resto permanece no hash estático: CRM, auth, storage, funções, roles,
   grants, RLS, pai Realtime, objetos não reconhecidos e o segundo banco.
 
@@ -77,3 +81,8 @@ novo container com rede none, filesystem somente leitura, tmpfs, 1 CPU/1 GiB e
 dados sintéticos. Não recebe DSN de produção nem container de origem. O teste
 compara pg_dump/pg_restore, dados/Catalog e reinício da cópia; seu resultado é
 separado dos testes unitários e não deve ser inferido de mocks.
+
+O workflow PR-only `.github/workflows/catalog-policy-ci.yml` executa essa prova
+em runner GitHub nativo ARM64, com PostgreSQL 17 fixado por digest e o head exato
+do PR. Publica apenas evidência de testes sintéticos; não acessa a VPS nem publica
+imagens. A CI preserva logs de falha e recibos SHA256 do código examinado.
