@@ -43,7 +43,9 @@ jobs:
       - name: Real PostgreSQL hostile DDL and complete dump restore invariants
         run: |
           set -euo pipefail
-          python3 tests/deployment/catalog_isolated_test.py | tee catalog-evidence/postgres17-isolation.json
+          # Root only inside this ephemeral hosted runner, to exercise actual
+          # root-owned receipt files as well as the networkless Docker fixture.
+          sudo -n python3 tests/deployment/catalog_isolated_test.py | tee catalog-evidence/postgres17-isolation.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:

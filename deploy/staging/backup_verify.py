@@ -217,6 +217,88 @@ def validate_catalog_observation(extension, catalog, topology, origin, previous,
         raise VerificationError(error.code) from None
 
 
+def read_approved_history(module, approved_directory, history_directory, approved_hash, evidence_sha256,
+                          history_evidence_sha256):
+    """Read-only offline migration aid; never called by SSH deploy/backup paths.
+
+    expected evidence_sha256 must come from the independently reviewed original
+    root attestation, not the directory being authenticated. The independently
+    reviewed replay receipt also pins history_evidence_sha256. The historical copy
+    must have been restored from that receipt-bound archive in isolation. This
+    reader performs no restore, DDL, baseline approval or file writes.
+    """
+    for directory, parent in ((approved_directory, STATE_ROOT / "backups"),
+                              (history_directory, STATE_ROOT / "catalog-history")):
+        require(isinstance(directory, Path) and directory.is_absolute() and directory.resolve() == directory
+                and directory.parent == parent, "history_fixed_directory")
+        private_dir(directory)
+    def raw_file(directory, name, *, limit=16 * 1024 * 1024):
+        path = directory / name
+        try: info = path.lstat()
+        except OSError: raise VerificationError("history_file_unavailable") from None
+        require(not path.is_symlink() and stat.S_ISREG(info.st_mode) and info.st_uid == 0
+                and stat.S_IMODE(info.st_mode) == 0o600 and info.st_nlink == 1 and info.st_size <= limit,
+                "history_file_metadata")
+        return path.read_bytes()
+    def decoded(raw):
+        try: return module.parse_policy(raw)
+        except module.CatalogError: raise VerificationError("history_json") from None
+    source_raw = raw_file(approved_directory, "evidence.json")
+    require(isinstance(evidence_sha256, str) and re.fullmatch(r"[a-f0-9]{64}", evidence_sha256)
+            and hashlib.sha256(source_raw).hexdigest() == evidence_sha256, "history_source_evidence_integrity")
+    source = decoded(source_raw)
+    def complete(evidence):
+        require(evidence.get("differences") == 0 and type(evidence.get("differences")) is int
+                and all(evidence.get(k) is True for k in ("restore_verified", "restart_verified", "storage_verified"))
+                and evidence.get("source_database_writes") is False
+                and evidence.get("source_container_id") == SOURCE_CONTAINER_ID
+                and evidence.get("source_system_identifier") == SOURCE_SYSTEM_ID,
+                "history_restore_or_source")
+    complete(source)
+    def receipted(directory, evidence, name):
+        entries = evidence.get("files")
+        require(isinstance(entries, list) and all(isinstance(row, dict) for row in entries), "history_file_inventory")
+        entries = [row for row in entries if row.get("file") == name]
+        require(len(entries) == 1, "history_file_receipt")
+        raw = raw_file(directory, name)
+        require(entries[0].get("sha256") == hashlib.sha256(raw).hexdigest()
+                and entries[0].get("bytes") == len(raw), "history_file_integrity")
+        return raw
+    original = decoded(receipted(approved_directory, source, "catalog-source.json"))
+    require(canonical_hash(original) == approved_hash and source.get("source_catalog_sha256") == approved_hash,
+            "history_original_catalog_anchor")
+    # Stream the archive hash; no database contents leave the private directory.
+    archives = [row for row in source["files"] if row.get("file") == "postgres.dump"]
+    archive = approved_directory / "postgres.dump"
+    info = archive.lstat()
+    require(not archive.is_symlink() and stat.S_ISREG(info.st_mode) and info.st_uid == 0
+            and stat.S_IMODE(info.st_mode) == 0o600 and info.st_nlink == 1, "history_archive_metadata")
+    require(len(archives) == 1 and archives[0].get("sha256") == file_hash(archive)
+            and archives[0].get("bytes") == info.st_size, "history_archive_integrity")
+    history_raw = raw_file(history_directory, "history-evidence.json")
+    require(isinstance(history_evidence_sha256, str) and re.fullmatch(r"[a-f0-9]{64}", history_evidence_sha256)
+            and hashlib.sha256(history_raw).hexdigest() == history_evidence_sha256,
+            "history_evidence_integrity")
+    history = decoded(history_raw)
+    complete(history)
+    require(type(history.get("format")) is int and history["format"] == 1
+            and history.get("context") == "isolated_approved_archive_restore"
+            and history.get("source_evidence_sha256") == evidence_sha256
+            and history.get("source_archive_sha256") == archives[0]["sha256"]
+            and history.get("source_catalog_sha256") == approved_hash
+            and history.get("network") == "none" and history.get("copy_removed") is True,
+            "history_restore_receipt_binding")
+    restored = decoded(receipted(history_directory, history, "catalog-restored.json"))
+    topology = decoded(receipted(history_directory, history, "partition-restored.json"))
+    result = {"format": 1, "context": "authenticated_logical_restore",
+              "approved_catalog_sha256": approved_hash, "source_evidence_sha256": evidence_sha256,
+              "source_archive_sha256": archives[0]["sha256"], "history_evidence_sha256": hashlib.sha256(history_raw).hexdigest(),
+              "catalog": restored, "topology": topology}
+    try: module.historical_partition_inventory(result, original, approved_hash)
+    except module.CatalogError as error: raise VerificationError(error.code) from None
+    return result
+
+
 def run(args, data=None, output=None, timeout=300):
     """Do not log command output: pg_dump/psql stderr can contain row secrets."""
     stream = None

@@ -82,6 +82,109 @@ def fixture():
     return catalog, topology, policy
 
 
+def history_fixture(catalog, topology):
+    # These OIDs describe the synthetic historical snapshot, not today's source.
+    return {"format": 1, "context": "authenticated_logical_restore",
+            "approved_catalog_sha256": m.digest(catalog), "source_evidence_sha256": "a" * 64,
+            "source_archive_sha256": "b" * 64, "history_evidence_sha256": "c" * 64,
+            "catalog": copy.deepcopy(catalog), "topology": copy.deepcopy(topology)}
+
+
+class FirstMigrationTests(unittest.TestCase):
+    def setUp(self):
+        self.catalog, self.topology, _ = fixture()
+        add_partition(self.catalog, self.topology, dt.date(2026, 11, 17))
+        self.approved = copy.deepcopy(self.catalog)
+        self.history = history_fixture(self.catalog, self.topology)
+        self.now = "2026-11-22T12:00:00+00:00"
+
+    def build(self, history=True):
+        return m.build_policy(self.approved, m.digest(self.approved), self.catalog, self.topology,
+                              m.SOURCE_CONTRACT, self.now,
+                              historical_restore=self.history if history else None)
+
+    def test_all_original_partitions_still_exist(self):
+        self.build(False)
+        self.build()
+
+    def test_partial_expired_removal(self):
+        remove_partition(self.catalog, self.topology, "messages_2026_11_16")
+        policy = self.build()
+        self.assertEqual(policy["initial_partitions"], ["messages_2026_11_17"])
+        self.assertEqual(policy["legacy_catalog_sha256"], m.digest(self.approved))
+
+    def test_all_originals_expired_and_current_empty(self):
+        for name in m.names_in(self.approved):
+            remove_partition(self.catalog, self.topology, name)
+        self.assertEqual(self.build()["initial_partitions"], [])
+
+    def test_all_originals_expired_with_new_valid_partitions_and_later_maintenance(self):
+        for name in m.names_in(self.approved):
+            remove_partition(self.catalog, self.topology, name)
+        add_partition(self.catalog, self.topology, dt.date(2026, 11, 21))
+        policy = self.build()
+        previous = policy["initial_partitions"]
+        remove_partition(self.catalog, self.topology, "messages_2026_11_21")
+        add_partition(self.catalog, self.topology, dt.date(2026, 11, 26))
+        m.evaluate(self.catalog, self.topology, policy, "2026-11-27T12:00:00+00:00", m.SOURCE_CONTRACT, previous)
+
+    def test_expiry_does_not_waive_missing_historical_topology(self):
+        remove_partition(self.catalog, self.topology, "messages_2026_11_16")
+        with self.assertRaisesRegex(m.CatalogError, "original_partition_topology_unavailable"):
+            self.build(False)
+        self.history["topology"]["partitions"][0]["parent_oids"] = [123]
+        with self.assertRaisesRegex(m.CatalogError, "topology_or_bound"):
+            self.build()
+
+    def test_early_removal_rejected_even_with_verified_history(self):
+        self.now = NOW
+        remove_partition(self.catalog, self.topology, "messages_2026_11_16")
+        with self.assertRaisesRegex(m.CatalogError, "removed_before_retention"):
+            self.build()
+
+    def test_missing_original_or_replaced_history_catalog_is_rejected(self):
+        with self.assertRaises(m.CatalogError):
+            m.build_policy(None, m.digest(self.approved), self.catalog, self.topology, m.SOURCE_CONTRACT, self.now)
+        self.history["catalog"]["postgres"]["roles"][0]["rolsuper"] = True
+        with self.assertRaisesRegex(m.CatalogError, "historical_catalog_anchor"):
+            self.build()
+
+    def test_history_receipt_and_context_cannot_be_omitted_or_faked_as_live(self):
+        for key, value in (("source_evidence_sha256", None), ("context", "source"), ("format", True)):
+            with self.subTest(key=key):
+                original = self.history[key]
+                self.history[key] = value
+                with self.assertRaises(m.CatalogError): self.build()
+                self.history[key] = original
+
+    def test_historical_partition_template_mutation_is_rejected(self):
+        row = next(r for r in self.approved["postgres"]["relations"] if r.get("relname") == "messages_2026_11_16")
+        row["owner"] = "anon"
+        self.history = history_fixture(self.approved, self.history["topology"])
+        with self.assertRaises(m.CatalogError): self.build()
+
+    def test_new_partition_owner_acl_rls_and_index_stay_strict(self):
+        saved = copy.deepcopy((self.catalog, self.topology))
+        for attribute, value in (("owner", "anon"), ("acl", ["anon=r/anon"]), ("relrowsecurity", True)):
+            self.catalog, self.topology = copy.deepcopy(saved)
+            add_partition(self.catalog, self.topology, dt.date(2026, 11, 21))
+            row = next(r for r in self.catalog["postgres"]["relations"] if r.get("relname") == "messages_2026_11_21")
+            row[attribute] = value
+            with self.assertRaises(m.CatalogError): self.build()
+        self.catalog, self.topology = copy.deepcopy(saved)
+        add_partition(self.catalog, self.topology, dt.date(2026, 11, 21))
+        self.topology["partitions"][-1]["indexes"][0]["owner"] = "anon"
+        with self.assertRaises(m.CatalogError): self.build()
+
+    def test_first_migration_still_rejects_static_roles_functions_and_business_changes(self):
+        for kind, row in (("roles", {"rolname": "extra"}), ("functions", {"proname": "extra"})) + tuple(
+                ("relations", {"schema_name": schema, "relname": "extra"}) for schema in ("public", "auth", "storage")):
+            with self.subTest(kind=kind):
+                self.setUp()
+                self.catalog["postgres"][kind].append(row)
+                with self.assertRaisesRegex(m.CatalogError, "static_catalog_drift"): self.build()
+
+
 class CatalogPolicyTests(unittest.TestCase):
     def setUp(self):
         self.catalog, self.topology, self.policy = fixture()

@@ -11,6 +11,45 @@ do Catalog aprovado. `build_policy()` só trabalha com snapshots fornecidos:
 confere o hash original e recusa qualquer diferença estática entre ele e o
 snapshot atual. Não escreve arquivo nem torna a base atual aprovada.
 
+### Primeira ativação depois de partições antigas expirarem
+
+Partições originais ausentes só podem ser removidas da projeção se a data for
+estritamente anterior ao dia UTC observado menos três dias **e** houver uma
+restauração histórica autenticada. Sem ela, mantém-se
+`original_partition_topology_unavailable`; nome e data não provam topologia.
+
+O operador restaura o arquivo original em isolamento pelo mecanismo já revisado,
+confere Catalog integral/dados/Storage/reinício e captura `INVENTORY_SQL` na cópia.
+Os OIDs são reais **da cópia restaurada**, nunca OIDs inventados da origem antiga.
+O Catalog restaurado deve ser integralmente igual ao original aprovado. A única
+variação de representação aceita na topologia é a flag de PK já documentada para
+`logical_restore`. O snapshot corrente continua no contexto source estrito.
+
+`backup_verify.read_approved_history()` é um leitor offline, sem escrita ou novo
+comando SSH. Exige diretórios root privados fixos sob `STATE/backups` e
+`STATE/catalog-history`, recibos e hashes independentes do `evidence.json` original
+e do `history-evidence.json` de replay. Valida `postgres.dump`, Catalog original,
+Catalog/topologia restaurados, identidade e resultados completos. Os dois hashes
+esperados vêm dos comprovantes revisados separadamente, nunca do arquivo que se
+quer autenticar. História ausente, substituída, corrompida ou com diferenças falha.
+
+O comprovante de replay registra `context=isolated_approved_archive_restore`,
+`source_evidence_sha256`, `source_archive_sha256`, `source_catalog_sha256`, a
+identidade original, rede none, cópia removida, restore/restart/Storage verificados,
+differences=0 e recibos dos arquivos fixos `catalog-restored.json` e
+`partition-restored.json`. Não exportar esses arquivos privados para o GitHub.
+
+Após essa autenticação, o operador fornece o resultado como argumento nomeado
+`historical_restore` de `build_policy()`. A função valida todas as folhas históricas,
+separa presentes/expiradas/ausentes indevidamente, valida a topologia corrente e
+faz a comparação estática estrita. Partições atuais novas continuam limitadas à
+janela revisada. O conjunto inicial passa a ser o conjunto corrente validado;
+manutenção posterior continua pelo `evaluate()` e histórico root existente.
+
+Nenhum release cria/instala esse comprovante ou a política automaticamente. Se os
+arquivos originais não permitirem reconstrução autenticada, manter a recusa e
+pedir revisão independente de migração única, preservando o hash aprovado antigo.
+
 ## O que muda e o que não muda
 
 - O backup continua comparando o Catalog **integral**, dados, Storage e reinício

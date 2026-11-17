@@ -267,12 +267,36 @@ def evaluate(catalog, topology, policy, observed_at, origin, previous_names=None
             "source_contract": origin, "partition_inventory_sha256": digest(topology)}
 
 
-def build_policy(approved_catalog, approved_hash, current_catalog, topology, origin, approved_at):
+def historical_partition_inventory(history, approved_catalog, approved_hash):
+    """Only an independently authenticated logical restore can supply lost topology.
+
+    The offline operator must use backup_verify.read_approved_history(); this is
+    not a request field or permission to trust a caller's arbitrary JSON. OIDs
+    belong to the restored snapshot, never to the deleted source relations.
+    """
+    keys = {"format", "context", "approved_catalog_sha256", "source_evidence_sha256",
+            "source_archive_sha256", "history_evidence_sha256", "catalog", "topology"}
+    need(isinstance(history, dict) and set(history) == keys and type(history["format"]) is int
+         and history["format"] == 1 and history["context"] == "authenticated_logical_restore",
+         "historical_restore_evidence_required")
+    need(history["approved_catalog_sha256"] == approved_hash
+         and digest(history["catalog"]) == approved_hash and history["catalog"] == approved_catalog,
+         "historical_catalog_anchor_mismatch")
+    for key in ("source_evidence_sha256", "source_archive_sha256", "history_evidence_sha256"):
+        need(isinstance(history[key], str) and HASH.fullmatch(history[key]) is not None,
+             "historical_receipt_required")
+    return topology_by_name(history["topology"], names_in(approved_catalog), logical_restore=True)
+
+
+def build_policy(approved_catalog, approved_hash, current_catalog, topology, origin, approved_at,
+                 *, historical_restore=None):
     """Offline review aid. Requires the original authenticated Catalog, not a newly blessed hash.
 
     It permits NO static difference between the old approved snapshot and current
     snapshot. Caller must separately authenticate the old snapshot against state
-    and evidence.json. No policy file or state is written by this function.
+    and evidence.json. Deleted original partitions additionally require an
+    authenticated historical restore, not a guessed OID or today's topology.
+    No policy file or state is written by this function.
     """
     need(digest(approved_catalog) == approved_hash, "original_catalog_anchor_mismatch")
     need(origin == SOURCE_CONTRACT, "partition_source_unreviewed")
@@ -280,8 +304,16 @@ def build_policy(approved_catalog, approved_hash, current_catalog, topology, ori
     need(bool(old_names), "reviewed_original_partition_required")
     current_names = names_in(current_catalog)
     by_name = topology_by_name(topology, current_names)
-    need(set(old_names).issubset(by_name), "original_partition_topology_unavailable")
-    template = canonical_rows(approved_catalog["postgres"], old_names[0], by_name[old_names[0]])
+    missing = set(old_names) - set(current_names)
+    for name in missing:
+        need(date_of(name) < timestamp(approved_at).date() - dt.timedelta(days=3),
+             "partition_removed_before_retention")
+    if historical_restore is not None:
+        historical = historical_partition_inventory(historical_restore, approved_catalog, approved_hash)
+    else:
+        need(not missing, "original_partition_topology_unavailable")
+        historical = by_name
+    template = canonical_rows(approved_catalog["postgres"], old_names[0], historical[old_names[0]])
     check_template(template)
     static = copy.deepcopy(approved_catalog)
     for kind in CLASSES:
@@ -292,7 +324,7 @@ def build_policy(approved_catalog, approved_hash, current_catalog, topology, ori
               "initial_partitions": old_names, "template_catalog": template}
     # Old rows are checked too; changing an original partition cannot manufacture a template.
     for name in old_names:
-        need(canonical_rows(approved_catalog["postgres"], name, by_name[name]) == template,
+        need(canonical_rows(approved_catalog["postgres"], name, historical[name]) == template,
              "original_partitions_disagree")
     evaluate(current_catalog, topology, policy, approved_at, origin)
     policy["initial_partitions"] = current_names

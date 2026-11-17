@@ -8,10 +8,12 @@ import datetime as dt
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
 import time
+import tempfile
 import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -142,6 +144,124 @@ def create_partition(instance, database, day):
         f"GRANT INSERT,SELECT ON realtime.{name} TO postgres WITH GRANT OPTION; RESET ROLE;")
 
 
+def migration_history_cases(instance):
+    """Actual old pg_dump/restore, root receipts and lost original partitions."""
+    assert os.geteuid() == 0, "history_fixture_requires_root_owned_receipts"
+    results = []
+    database = "catalog_case_100"
+    instance.sql("postgres", "DROP DATABASE catalog_restore; CREATE DATABASE " + database)
+    instance.sql(database, DDL)
+    for day in (16, 17): create_partition(instance, database, dt.date(2026, 11, day))
+    instance.sql(database, "INSERT INTO public.protected VALUES(7,1)")
+    old, old_topology, data = snapshot(instance, database)
+    archive = instance.exec("pg_dump", "-h", "/tmp/restore-socket", "-U", "supabase_admin", "-Fc", database)
+    instance.sql("postgres", "CREATE DATABASE catalog_restore")
+    instance.exec("pg_restore", "--exit-on-error", "-h", "/tmp/restore-socket", "-U", "supabase_admin", "-d", "catalog_restore", data=archive)
+    restored, restored_topology, restored_data = snapshot(instance, "catalog_restore")
+    backup.require_equal(old, restored, "history_catalog")
+    backup.require_equal(data, restored_data, "history_data")
+    instance.exec("mkdir", "/tmp/history-storage-source", "/tmp/history-storage-restored")
+    instance.exec("tee", "/tmp/history-storage-source/synthetic.txt", data=b"synthetic storage object")
+    source_tar = instance.exec("tar", "-czf", "-", "-C", "/tmp/history-storage-source", ".")
+    instance.exec("tar", "-xzf", "-", "-C", "/tmp/history-storage-restored", data=source_tar)
+    restored_tar = instance.exec("tar", "-czf", "-", "-C", "/tmp/history-storage-restored", ".")
+    instance.pgctl("restart")
+    restarted, restarted_topology, restarted_data = snapshot(instance, "catalog_restore")
+    backup.require_equal(old, restarted, "history_restart_catalog")
+    backup.require_equal(data, restarted_data, "history_restart_data")
+    assert restarted_topology == restored_topology
+    restored_tar = instance.exec("tar", "-czf", "-", "-C", "/tmp/history-storage-restored", ".")
+    instance.sql("postgres", "DROP DATABASE catalog_restore")
+    with tempfile.TemporaryDirectory(prefix="catalog-history-fixture-", dir="/run") as temp:
+        root = Path(temp)
+        source = root / "backups" / "original"
+        history = root / "catalog-history" / "replay"
+        for path in (source.parent, source, history.parent, history): path.mkdir(mode=0o700)
+        common = {"source_container_id": backup.SOURCE_CONTAINER_ID, "source_system_identifier": backup.SOURCE_SYSTEM_ID,
+                  "source_database_writes": False, "restore_verified": True, "restart_verified": True,
+                  "storage_verified": True, "differences": 0, "source_catalog_sha256": policy_module.digest(old)}
+        def receipt(directory):
+            return [{"file": p.name, "sha256": backup.file_hash(p), "bytes": p.stat().st_size} for p in sorted(directory.iterdir())]
+        backup.write_json(source / "catalog-source.json", old)
+        backup.private_write(source / "postgres.dump", archive)
+        backup.private_write(source / "storage.tar.gz", source_tar)
+        backup.private_write(history / "storage.tar.gz", restored_tar)
+        backup.require_equal(backup.tar_manifest(source / "storage.tar.gz"), backup.tar_manifest(history / "storage.tar.gz"), "history_storage")
+        backup.write_json(source / "evidence.json", {**common, "files": receipt(source)})
+        backup.write_json(history / "catalog-restored.json", restored)
+        backup.write_json(history / "partition-restored.json", restored_topology)
+        evidence = {**common, "format": 1, "context": "isolated_approved_archive_restore",
+            "source_evidence_sha256": backup.file_hash(source / "evidence.json"),
+            "source_archive_sha256": backup.file_hash(source / "postgres.dump"),
+            "network": "none", "copy_removed": True, "files": receipt(history)}
+        # The restored historical database has been dropped after verification;
+        # the enclosing synthetic container is removed by run().
+        # No source/production identity is accessed by these synthetic receipts.
+        backup.write_json(history / "history-evidence.json", evidence)
+        original_root = backup.STATE_ROOT
+        try:
+            backup.STATE_ROOT = root
+            authenticated = backup.read_approved_history(policy_module, source, history, policy_module.digest(old),
+                backup.file_hash(source / "evidence.json"), backup.file_hash(history / "history-evidence.json"))
+        finally: backup.STATE_ROOT = original_root
+        def build(now="2026-11-22T12:00:00+00:00", history_value=authenticated):
+            current, topology, _ = snapshot(instance, database)
+            return policy_module.build_policy(old, policy_module.digest(old), current, topology,
+                policy_module.SOURCE_CONTRACT, now, historical_restore=history_value)
+        build()
+        results.append({"case": "bootstrap_all_originals_present", "accepted": True})
+        instance.sql(database, "DROP TABLE realtime.messages_2026_11_16")
+        build()
+        results.append({"case": "bootstrap_partial_expired_removal", "accepted": True})
+        try: build("2026-11-17T12:00:00+00:00")
+        except policy_module.CatalogError as error:
+            assert error.code == "partition_removed_before_retention"
+            results.append({"case": "bootstrap_unexpired_missing", "rejected": True, "category": error.code})
+        else: raise AssertionError("early_removal_accepted")
+        try: build(history_value=None)
+        except policy_module.CatalogError as error:
+            assert error.code == "original_partition_topology_unavailable"
+            results.append({"case": "bootstrap_missing_history", "rejected": True, "category": error.code})
+        else: raise AssertionError("missing_history_accepted")
+        instance.sql(database, "DROP TABLE realtime.messages_2026_11_17")
+        build()
+        results.append({"case": "bootstrap_all_originals_expired", "accepted": True})
+        create_partition(instance, database, dt.date(2026, 11, 21))
+        policy = build()
+        results.append({"case": "bootstrap_expired_and_new_partition", "accepted": True})
+        instance.sql(database, "GRANT SELECT ON realtime.messages_2026_11_21 TO anon")
+        try: build()
+        except policy_module.CatalogError:
+            results.append({"case": "bootstrap_new_partition_acl", "rejected": True})
+        else: raise AssertionError("new_partition_acl_accepted")
+        instance.sql(database, "REVOKE SELECT ON realtime.messages_2026_11_21 FROM anon")
+        for label, mutation, undo in [
+            ("rls", "ALTER TABLE realtime.messages_2026_11_21 ENABLE ROW LEVEL SECURITY", "ALTER TABLE realtime.messages_2026_11_21 DISABLE ROW LEVEL SECURITY"),
+            ("index", "CREATE INDEX unexpected ON realtime.messages_2026_11_21(topic)", "DROP INDEX realtime.unexpected"),
+            ("owner", "ALTER TABLE realtime.messages_2026_11_21 OWNER TO anon", "ALTER TABLE realtime.messages_2026_11_21 OWNER TO supabase_realtime_admin"),
+        ]:
+            instance.sql(database, mutation)
+            try: build()
+            except policy_module.CatalogError:
+                results.append({"case": "bootstrap_new_partition_" + label, "rejected": True})
+            else: raise AssertionError("bootstrap_mutation_accepted:" + label)
+            instance.sql(database, undo)
+        instance.sql(database, "DROP TABLE realtime.messages_2026_11_21")
+        create_partition(instance, database, dt.date(2026, 11, 26))
+        current, topology, _ = snapshot(instance, database)
+        policy_module.evaluate(current, topology, policy, "2026-11-27T12:00:00+00:00",
+            policy_module.SOURCE_CONTRACT, policy["initial_partitions"])
+        results.append({"case": "bootstrap_followed_by_cross_day_maintenance", "accepted": True})
+        instance.sql(database, "ALTER TABLE auth.protected ADD COLUMN unexpected text")
+        try: build("2026-11-27T12:00:00+00:00")
+        except policy_module.CatalogError as error:
+            assert error.code == "database_static_catalog_drift"
+            results.append({"case": "bootstrap_auth_schema_change", "rejected": True})
+        else: raise AssertionError("static_change_accepted")
+        results.append({"case": "historical_dump_restore_restart_and_synthetic_storage", "accepted": True})
+    return results
+
+
 def run():
     instance = IsolatedDatabase()
     results = []
@@ -240,6 +360,7 @@ def run():
             results.append({"case": "restore_row_tamper", "rejected": True})
         else:
             raise AssertionError("restore_data_tamper_accepted")
+        results.extend(migration_history_cases(instance))
     finally:
         instance.close()
     return {"started_utc": started, "finished_utc": dt.datetime.now(dt.timezone.utc).isoformat(),

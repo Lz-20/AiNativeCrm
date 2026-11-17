@@ -10,3 +10,6 @@ protegida. Permissões, RLS, relações e dependências das partições são ver
 antes da comparação; restauração de dados e Catalog continua integral. A política
 exige atualização operacional autorizada separadamente e não é instalada pelo
 PR ou por uma publicação de imagem. Sem ela, a proteção anterior permanece ativa.
+Na primeira ativação, partições já expiradas exigem prova autenticada da
+restauração do backup originalmente aprovado; sem essa história o gate continua
+fechado, inclusive quando o nome da tabela parece uma data legítima.
