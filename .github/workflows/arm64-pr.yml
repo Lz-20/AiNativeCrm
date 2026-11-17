@@ -48,6 +48,19 @@ jobs:
       - name: Full TypeScript project on ARM64
         if: matrix.service == 'app'
         run: pnpm typecheck
+      - name: Install the static probe dependency
+        if: matrix.service == 'app'
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v rg >/dev/null 2>&1 && { rg --version; exit 0; }
+          command -v apt-get >/dev/null 2>&1 || {
+            echo "::error::runner requires ripgrep for the static probes"
+            exit 1
+          }
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ripgrep
+          rg --version
       - name: Agent regression on ARM64 without live providers
         if: matrix.service == 'app'
         run: >-
