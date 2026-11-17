@@ -13,6 +13,7 @@ An operator installs these reviewed files as root. Workflows never update them:
 | `deploy.sh` | `/usr/local/sbin/ainativecrm-staging-entry` | root:root 0755 |
 | `engine.py` | `/usr/local/libexec/ainativecrm-staging/engine.py` | root:root 0644 |
 | `backup_verify.py` | `/usr/local/libexec/ainativecrm-staging/backup_verify.py` | root:root 0644 |
+| `catalog_policy.py` (optional reviewed policy support) | `/usr/local/libexec/ainativecrm-staging/catalog_policy.py` | root:root 0644 |
 | `compose.release.yml` | `/usr/local/libexec/ainativecrm-staging/compose.release.yml` | root:root 0644 |
 | `ssh-entry.sh` | `/usr/local/libexec/ainativecrm-staging/ssh-entry.sh` | root:root 0755 |
 | `rollback.sh` | `/usr/local/libexec/ainativecrm-staging/rollback.sh` | root:root 0755 |
@@ -109,6 +110,11 @@ a newly issued restore-verification attestation, matching live database/catalog,
 and intact evidence. Old attestations alone cannot authorize container changes.
 Only after this gate does it write a pending release atomically, update each
 service, check Docker health plus readiness, and perform ordinary-user API probes.
+An independently reviewed root policy may separate validated Realtime date
+partitions from the strictly protected static Catalog; without it the legacy
+full-hash gate is unchanged. Raw restore/data comparisons remain exact in both
+modes. See [CATALOG-POLICY.md](CATALOG-POLICY.md) for the narrow contract,
+original-baseline anchoring and separate installation/rollback procedure.
 It compares existing service states, Supabase container identities, listening
 ports, and the protected environment hash before and after.
 

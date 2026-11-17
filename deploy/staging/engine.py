@@ -10,6 +10,7 @@ import base64
 import copy
 import datetime as dt
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -303,7 +304,7 @@ class RootRuntime:
         need(0<=age<=86400,'fresh_verified_backup_required')
         need(proof.get('restore_verified') is True and proof.get('differences')==0,'backup_restore_not_verified')
         need(proof.get('source_system_identifier')==self.policy['system_identifier'] and proof.get('source_database')=='postgres','backup_source_identity')
-        need(proof.get('source_catalog_sha256')==state.get('approved_catalog_sha256') and matches(HASH_RE,state.get('approved_catalog_sha256')),'database_catalog_drift')
+        need(matches(HASH_RE,state.get('approved_catalog_sha256')),'database_catalog_drift')
         directory=Path(proof.get('backup_directory',''))
         need(directory.is_absolute() and directory.parent==STATE/'backups','fixed_backup_directory')
         secure_path(directory,mode=0o700,directory=True)
@@ -311,7 +312,45 @@ class RootRuntime:
         evidence_path=directory/'evidence.json'
         secure_path(evidence_path,mode=0o600)
         need(digest(evidence_path.read_bytes())==proof['evidence_sha256'],'backup_evidence_integrity')
+        catalog_policy = CONFIG/'catalog-policy.json'
+        if catalog_policy.exists() or catalog_policy.is_symlink():
+            self.verify_catalog_policy(proof, state, directory, catalog_policy)
+        else:
+            # Existing installations stay strict; no policy is generated automatically.
+            need(proof.get('source_catalog_sha256')==state['approved_catalog_sha256'],'database_catalog_drift')
         return proof
+
+    def verify_catalog_policy(self,proof,state,directory,policy_path):
+        secure_path(INSTALL/'catalog_policy.py')
+        spec=importlib.util.spec_from_file_location('installed_catalog_policy',INSTALL/'catalog_policy.py')
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        policy=read_root_json(policy_path)
+        try:module.validate_policy(policy,state['approved_catalog_sha256'])
+        except module.CatalogError as error:raise Failure(error.code) from None
+        need(proof.get('catalog_policy_sha256')==module.digest(policy),'catalog_policy_proof_version')
+        evidence=json.loads((directory/'evidence.json').read_bytes())
+        need(all(evidence.get(k) is True for k in ('restore_verified','restart_verified','storage_verified'))
+             and evidence.get('differences')==0,'backup_restore_not_verified')
+        files=evidence.get('files');need(isinstance(files,list),'backup_evidence_inventory')
+        def read_evidence(name):
+            # Fixed names, bounded root-owned files; no request-supplied path or SQL.
+            path=directory/name;secure_path(path,mode=0o600)
+            need(path.stat().st_size<=16*1024*1024,'catalog_evidence_size')
+            entries=[row for row in files if row.get('file')==name]
+            raw=path.read_bytes()
+            need(len(entries)==1 and entries[0].get('sha256')==digest(raw)
+                 and entries[0].get('bytes')==len(raw),'catalog_evidence_integrity')
+            return json.loads(raw)
+        catalog=read_evidence('catalog-source.json');topology=read_evidence('partition-source.json')
+        observed=proof.get('partition_validation')
+        need(isinstance(observed,dict) and observed==evidence.get('partition_validation')
+             and observed.get('observed_at')==evidence.get('started_at'),'partition_proof_integrity')
+        try:
+            actual=module.evaluate(catalog,topology,policy,observed['observed_at'],observed.get('source_contract'),
+                                   observed.get('previous_partition_names'))
+        except module.CatalogError as error:raise Failure(error.code) from None
+        need(actual==observed and actual['raw_catalog_sha256']==proof.get('source_catalog_sha256')
+             and actual['static_catalog_sha256']==proof.get('static_catalog_sha256'),'partition_proof_recalculation')
 
     def status(self,state):
         valid=False
@@ -331,6 +370,13 @@ class RootRuntime:
         need(dt.datetime.fromisoformat(proof['verified_at'])>=started,'backup_hook_must_publish_new_verification')
         current=json.loads(self.command(['/usr/bin/python3',str(INSTALL/'backup_verify.py'),'--identity-readonly'],'live_database_identity_failed',timeout=120))
         need(current.get('source_system_identifier')==proof['source_system_identifier'] and current.get('source_catalog_sha256')==proof['source_catalog_sha256'],'database_catalog_changed_after_backup')
+        if proof.get('catalog_policy_sha256'):
+            need(current.get('catalog_policy_sha256')==proof['catalog_policy_sha256']
+                 and current.get('static_catalog_sha256')==proof['static_catalog_sha256'],'live_catalog_policy_changed')
+            self.audit({'phase':'catalog_policy_verified','catalog_policy_sha256':proof['catalog_policy_sha256'],
+                        'static_catalog_sha256':proof['static_catalog_sha256'],
+                        'raw_catalog_sha256':proof['source_catalog_sha256'],
+                        'partition_count':len(proof['partition_validation']['partition_names']),'at':utcnow()})
         return proof
 
     def verify_source(self,request,previous_sha):
