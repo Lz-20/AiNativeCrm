@@ -96,15 +96,18 @@ def run_image_compatibility(major,dest):
         data={'url':'http://'+service+path,'headers':{'Cookie':cookie} if cookie else {}}
         return json.loads(docker('exec','-i',gateway,'python','-c',script,data=json.dumps(data).encode()))
     def wait_http(gateway,service,path,cookie=None):
-        for _ in range(90):
+        deadline=time.monotonic()+90;last_status=None
+        while time.monotonic()<deadline:
             try:
                 value=request(gateway,service,path,cookie)
+                last_status=value['status']
                 if value['status']==200:return value
             except RuntimeError:pass
             time.sleep(1)
-        raise AssertionError('isolated_http_not_ready_'+service+path)
+        raise AssertionError('isolated_http_not_ready_'+service+path+'_status_'+str(last_status))
     try:
         db.start();pg.init(db)
+        print(json.dumps({'phase':'old_schema_initialized','postgres_major':major}),flush=True)
         db.sql("CREATE ROLE authenticator LOGIN; GRANT anon,authenticated,service_role TO authenticator;")
         db.sql(f"""INSERT INTO public.crm_pipelines(organization_id,name,slug) VALUES('{pg.ORG}','SVC-101 pipeline','schema0412');
           INSERT INTO public.crm_tasks(organization_id,title,contact_id) VALUES('{pg.ORG}','SVC-101 task','{pg.CONTACT}');""")
@@ -146,6 +149,7 @@ def run_image_compatibility(major,dest):
             applications.append({'references':refs,'crm_paths_ok':True,'worker_healthz':200,'scheduler_crond':True})
             return ids
         old_ids=boot(OLD)
+        print(json.dumps({'phase':'old_images_on_expanded_schema_passed','postgres_major':major}),flush=True)
         stop(old_ids)
         # Rebuild all three production images from the immutable reviewed source,
         # no GHCR publication and no reuse of another commit's green CI.
@@ -154,6 +158,7 @@ def run_image_compatibility(major,dest):
             raw=pg.command(['git','archive',m.REVIEWED_SOURCE],timeout=180)
             with tarfile.open(fileobj=io.BytesIO(raw)) as archive:archive.extractall(temp,filter='data')
             for name,file in [('app','Dockerfile'),('worker','Dockerfile.worker'),('scheduler','Dockerfile.scheduler')]:
+                print(json.dumps({'phase':'building_reviewed_image','service':name,'postgres_major':major}),flush=True)
                 tag='schema0412-'+db.name+'-'+name+':new';new[name]=tag
                 docker('build','--label','org.opencontainers.image.revision='+m.REVIEWED_SOURCE,
                   '--label','org.opencontainers.image.source=https://github.com/Lz-20/AiNativeCrm',
@@ -166,12 +171,19 @@ def run_image_compatibility(major,dest):
         fp='embedding:v1:'+hashlib.sha256(json.dumps([1,'siliconflow','https://api.siliconflow.cn/v1','BAAI/bge-m3',1024,'1'],separators=(',',':')).encode()).hexdigest()
         db.sql(f"""INSERT INTO public.ai_embedding_configurations(organization_id,provider,base_url,model,dimensions,model_revision,fingerprint,enabled)
           VALUES('{pg.ORG}','siliconflow','https://api.siliconflow.cn/v1','BAAI/bge-m3',1024,'1','{fp}',false);""")
+        inactive='e4122222-0000-4000-8000-000000000007'
+        db.sql(f"""INSERT INTO public.ai_knowledge_versions(id,organization_id,knowledge_source_id,version_number,status,is_active,embedding_model,embedding_dims,embedding_profile)
+          VALUES('{inactive}','{pg.ORG}','{pg.SOURCE}',2,'building',false,'{fp}',1024,'{{"fingerprint":"{fp}","dimensions":1024}}');
+          INSERT INTO public.ai_embedding_chunks(organization_id,knowledge_source_id,kb_version_id,position,content,content_hash,token_count,embedding,embedding_dims,embedding_fingerprint)
+          VALUES('{pg.ORG}','{pg.SOURCE}','{inactive}',0,'Inactive SVC-101 preserved vector','synthetic-new',8,array_fill(0.1::real,array[1024])::vector,1024,'{fp}');
+          UPDATE public.ai_knowledge_versions SET status='ready',total_chunks=1 WHERE id='{inactive}';""")
         response=request(gateway,'app:3000','/api/v1/ai/knowledge/embedding',cookie)
         assert json.loads(response['body'])['data']['configuration']['model']=='BAAI/bge-m3'
         stop(new_ids)
         rollback_ids=boot(OLD)
         assert db.sql(f"SELECT model FROM public.ai_embedding_configurations WHERE organization_id='{pg.ORG}'")=='BAAI/bge-m3'
         assert db.sql(f"SELECT count(*) FROM public.ai_chunks WHERE knowledge_source_id='{pg.SOURCE}'")=='1'
+        assert db.sql(f"SELECT count(*) FROM public.ai_embedding_chunks WHERE kb_version_id='{inactive}'")=='1'
         stop(rollback_ids)
         return {'postgres_major':major,'images':images,'phases':applications,'schema_registration_separates_image_and_database':True,
           'rollback_preserved_new_data':True,'auth_identity':'synthetic_HMAC_fixture_not_GoTrue_acceptance',

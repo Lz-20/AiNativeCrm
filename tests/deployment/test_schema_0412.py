@@ -22,9 +22,9 @@ def fixture():
           'acl':['postgres=arwdDxt/postgres','service_role=arwdDxt/postgres','authenticated=r/postgres'],
           'relrowsecurity':True,'relforcerowsecurity':False})
     after['postgres']['columns'].append({'schema_name':'public','table_name':'ai_knowledge_versions',
-      'attname':'embedding_profile','type_name':'jsonb','attnotnull':False})
+      'attname':'embedding_profile','type_name':'jsonb','attnotnull':False,'default_hash':'d41d8cd98f00b204e9800998ecf8427e','acl':[]})
     for name in sorted(m.NEW_FUNCTIONS|m.REPLACED_FUNCTIONS):
-        after['postgres']['functions'].append({'schema_name':'public','proname':name,'owner':'postgres','definition_hash':'new'})
+        after['postgres']['functions'].append({'schema_name':'public','proname':name,'owner':'postgres','definition_hash':'new','acl':['postgres=X/postgres','service_role=X/postgres']})
     a=m.static_projection(before,topology,policy,catalog.NOW,catalog.m.SOURCE_CONTRACT)
     z=m.static_projection(after,topology,policy,catalog.NOW,catalog.m.SOURCE_CONTRACT)
     release={'kind':'git','sha':m.FROM_SOURCE,'schema_sha256':m.FROM_SCHEMA,

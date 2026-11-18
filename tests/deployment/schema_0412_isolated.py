@@ -30,7 +30,7 @@ VERSION='e4122222-0000-4000-8000-000000000005'
 KEY='e4122222-0000-4000-8000-000000000006'
 
 
-def git_blob(sha,path):return subprocess.check_output(['git','show',sha+':'+path],cwd=ROOT)
+def git_blob(sha,path):return subprocess.check_output(['git','-c','safe.directory='+str(ROOT),'show',sha+':'+path],cwd=ROOT)
 
 
 def command(args,data=None,timeout=180):
@@ -42,7 +42,9 @@ def command(args,data=None,timeout=180):
 class Database:
     def __init__(self,major,compatibility=False):
         assert major in ('15','17')
-        self.major=major;self.image='pgvector/pgvector:pg'+major
+        digests={'15':'e0b617fffc06dd37323ee99873c7a8683f19f1dce34633670262b0113ce32638',
+                 '17':'b513c48566e4777cd3370451400000c78eda6a08131d68f4c31d4a76f27bd8fd'}
+        self.major=major;self.image='pgvector/pgvector:pg'+major+'@sha256:'+digests[major]
         self.name='ainativecrm-schema0412-'+uuid.uuid4().hex[:12];self.cid=None
         self.network=self.name+'-private' if compatibility else None
     def start(self):
@@ -53,7 +55,7 @@ class Database:
         if self.network:command(['docker','network','create','--internal','--label','ainativecrm.schema0412='+self.name,self.network])
         network=['--network',self.network,'--network-alias','db'] if self.network else ['--network','none']
         self.cid=command(['docker','run','-d','--pull=never','--name',self.name,'--label','ainativecrm.schema0412='+self.name,
-          *network,'--read-only','--memory','2g','--cpus','2','--pids-limit','256',
+          *network,'-e','PGHOST=/tmp/schema0412-socket','--read-only','--memory','2g','--cpus','2','--pids-limit','256',
           '--security-opt','no-new-privileges:true','--log-driver','none',
           '--tmpfs','/tmp:rw,size=1200m,mode=1777','--tmpfs','/var/lib/postgresql/data:rw,size=1m',
           '--entrypoint','sleep',self.image,'infinity']).decode().strip()
@@ -213,9 +215,11 @@ def test_database(major,dest):
         db.exec(['pg_restore','-h','/tmp/schema0412-socket','-U','postgres','--exit-on-error','-d','schema0412_restore'],archive)
         restored=b.data_metadata(Session(db,'schema0412_restore'));current=b.data_metadata(Session(db))
         assert restored==current
+        assert b.catalog_metadata(Session(db,'schema0412_restore'))==b.catalog_metadata(Session(db))
         db.exec(['pg_ctl','-D','/tmp/schema0412-data','-m','fast','-w','restart'])
         assert b.data_metadata(Session(db,'schema0412_restore'))==current
-        out.append('full_dump_restore_restart_data_equal')
+        assert b.catalog_metadata(Session(db,'schema0412_restore'))==b.catalog_metadata(Session(db))
+        out.append('full_dump_restore_restart_catalog_and_data_equal')
         dest.mkdir(parents=True,exist_ok=True)
         (dest/('delta-pg'+major+'.json')).write_text(json.dumps(change,sort_keys=True,indent=2),encoding='utf8')
         return {'postgres_major':major,'postgres_image_id':db.image_id,'image_repo_digests':db.repo_digests,

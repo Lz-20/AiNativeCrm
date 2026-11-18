@@ -146,6 +146,10 @@ def check_delta_scope(value):
                     need(kind=='functions' and row.get('proname') in REPLACED_FUNCTIONS,'schema0412_unapproved_deletion')
                 elif kind=='functions':
                     need(row.get('proname') in NEW_FUNCTIONS|REPLACED_FUNCTIONS and row.get('owner')=='postgres','schema0412_function_scope')
+                    grants=row.get('acl',[])
+                    readers=REPLACED_FUNCTIONS|{'fn_search_knowledge_profile'}
+                    roles={'postgres','service_role'}|({'authenticated'} if row['proname'] in readers else set())
+                    need(type(grants) is list and all(g.split('=')[0] in roles for g in grants),'schema0412_function_acl')
                     seen_functions.add(row['proname'])
                 elif kind=='relations':
                     need(row.get('relname') in TABLES and row.get('relkind')=='r' and row.get('owner')=='postgres'
@@ -169,6 +173,8 @@ def check_delta_scope(value):
                 elif kind=='columns' and row.get('table_name')=='ai_knowledge_versions':
                     need(row.get('attname')=='embedding_profile' and row.get('type_name')=='jsonb'
                          and row.get('attnotnull') is False,'schema0412_version_column')
+                    need(not row.get('acl') and row.get('default_hash')=='d41d8cd98f00b204e9800998ecf8427e',
+                         'schema0412_version_column_default_or_acl')
                     version_columns.append(row)
                 else:
                     need(row.get('table_name',row.get('tablename')) in TABLES,'schema0412_object_scope')
@@ -208,6 +214,10 @@ def validate_approval(approval, old_policy, state):
 
 def verify_change(before, after, approval):
     change=delta(before,after);check_delta_scope(change)
+    if 'publication_tables' in change:
+        automatic={row['pubname'] for row in before['postgres']['publications'] if row.get('puballtables') is True}
+        need(all(row.get('pubname') in automatic for row in change['publication_tables']['added']),
+             'schema0412_unapproved_publication_membership')
     need(change==approval['delta'] and digest(change)==approval['delta_sha256'],'schema0412_unapproved_catalog_delta')
     return digest(after)
 

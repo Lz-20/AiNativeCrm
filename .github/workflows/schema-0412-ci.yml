@@ -51,6 +51,10 @@ jobs:
         run: |
           set -euo pipefail
           python3 tests/deployment/schema_0412_isolated.py | tee schema-0412-evidence/postgres-output.log
+      - name: Execute production transaction adapter against a labelled disposable database
+        run: |
+          set -euo pipefail
+          sudo -n env TEST_PG_MAJOR="$TEST_PG_MAJOR" python3 tests/deployment/schema_0412_adapter_test.py | tee schema-0412-evidence/production-adapter.log
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:
