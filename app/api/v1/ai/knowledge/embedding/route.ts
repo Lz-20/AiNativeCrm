@@ -79,7 +79,7 @@ export async function PUT(req: Request): Promise<Response> {
       : await admin.from("ai_embedding_configurations").insert(row).select("version").single();
     if (result.error || !result.data) throw new Error();
     await audit({ organizationId: org, actorUserId: auth.user.id, action: "ai.embedding_configured", resourceType: "ai_embedding_configurations",
-      resourceId: org, requestId, metadata: { provider: profile.provider, model: profile.model, dimensions: profile.dimensions,
+      resourceId: auth.org.orgId, requestId, metadata: { provider: profile.provider, model: profile.model, dimensions: profile.dimensions,
         fingerprint: profile.fingerprint, enabled, request_id: requestId } });
     return ok({ version: row.version, fingerprint: row.fingerprint, enabled }, { requestId });
   } catch {

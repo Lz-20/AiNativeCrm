@@ -26,16 +26,18 @@ export async function POST(req: Request): Promise<Response> {
   try {
     const row = await readEmbeddingConfiguration(org);
     if (!row || row.enabled) return fail("embedding_validation_requires_disabled_config", "请先禁用Embedding并保存配置，再验证。", 409, { requestId });
+    const credentialId = row.credential_id;
+    if (!credentialId) throw new EmbeddingConfigurationError("embedding_credential_unavailable");
     const resolved = await credentialForEmbedding(org, row, true);
     const result = await requestEmbedding(resolved.profile, resolved.apiKey, "Embedding configuration validation");
     const current = await readEmbeddingConfiguration(org);
     if (current?.version !== row.version) throw new EmbeddingConfigurationError("embedding_configuration_changed");
     const { data, error } = await createAdminClient().from("ai_provider_credentials")
       .update({ validated_at: new Date().toISOString(), validation_error: null })
-      .eq("id", row.credential_id!).eq("organization_id", org).eq("provider", row.provider).eq("is_active", true)
+      .eq("id", credentialId).eq("organization_id", org).eq("provider", row.provider).eq("is_active", true)
       .select("id").maybeSingle();
     if (error || !data) throw new EmbeddingConfigurationError("embedding_credential_unavailable");
-    await audit({ organizationId: org, actorUserId: auth.user.id, action: "ai.embedding_validated", resourceType: "ai_provider_credentials", resourceId: row.credential_id!, requestId,
+    await audit({ organizationId: org, actorUserId: auth.user.id, action: "ai.embedding_validated", resourceType: "ai_provider_credentials", resourceId: credentialId, requestId,
       metadata: { purpose: "embedding_validation", provider: row.provider, model: row.model,
         dimensions: row.dimensions, request_id: requestId } });
     return ok({ validated: true, dimensions: result.embedding.length, prompt_tokens: result.promptTokens }, { requestId });

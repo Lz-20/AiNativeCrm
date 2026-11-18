@@ -61,6 +61,18 @@ describe("0412 — distinct embedding spaces, immutable provenance and atomic pu
     expect(() => sql(`select * from public.fn_search_knowledge_profile('${GOV_ORG}',array['${source}']::uuid[],${vector(1536)},'${fpA}',1024,5,-1)`)).toThrow();
     expect(() => sql(`update public.ai_embedding_configurations set base_url='http://127.0.0.1/v1' where organization_id='${GOV_ORG}'`)).toThrow();
   });
+  it("rejects wrong-profile writes and zero or wrong-length stored vectors", () => {
+    // The version is immutable/ready, so it cannot accept additional writes.
+    expect(() => sql(`insert into public.ai_embedding_chunks(organization_id,knowledge_source_id,kb_version_id,position,content,content_hash,token_count,embedding,embedding_dims,embedding_fingerprint)
+      values('${GOV_ORG}','${source}','${versionA}',9,'synthetic','hash',1,${vector(1024)},1024,'${fpB}')`)).toThrow();
+    expect(() => sql(`select * from public.fn_search_knowledge_profile('${GOV_ORG}',array['${source}']::uuid[],array_fill(0::real,array[1024])::vector,'${fpA}',1024,5,-1)`)).toThrow();
+    expect(() => count(fpB)).toThrow();
+  });
+  it("builds a usable HNSW expression index for the dimension-specific cosine query", () => {
+    const plan = sql(`set enable_seqscan=off; explain (format json) select id from public.ai_embedding_chunks
+      where embedding_dims=1024 order by embedding::vector(1024) <=> ${vector(1024)}::vector(1024) limit 5;`);
+    expect(plan).toContain("embedding_chunks_1024_cosine");
+  });
   it("cannot attach a different-tenant credential", () => {
     expect(() => sql(`insert into public.ai_embedding_configurations(organization_id,provider,base_url,model,dimensions,model_revision,fingerprint,credential_id)
       values('${otherOrg}','siliconflow','https://api.siliconflow.cn/v1','BAAI/bge-m3',1024,'1','${fpA}','${keyA}')`)).toThrow();

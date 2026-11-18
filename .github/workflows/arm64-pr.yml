@@ -65,6 +65,10 @@ jobs:
         if: matrix.service == 'app'
         run: >-
           pnpm exec vitest run lib/agent-runtime lib/ai/agents
+          lib/ai/embeddings lib/ai/embed.test.ts lib/ai/knowledge lib/ai/rag/version.test.ts
+          lib/agent-engine/edge/llm/embedding-provider.test.ts
+          components/ai/EmbeddingConfigurationPanel.test.tsx app/api/v1/ai/knowledge
+          tests/unit/rag-nao-ativa-versao-incompleta.test.ts
           lib/agent-engine/agent lib/agent-engine/edge/llm/credentials.test.ts
           tests/unit/llm-calls-registra-falha.test.ts
           tests/unit/agent-llm-capabilities.test.ts
@@ -123,7 +127,7 @@ jobs:
               os=image['Os'], local_image_id=image['Id'], published=False)
           json.dump(evidence, open('arm64-evidence.json', 'w'), indent=2)
           PY
-      - name: Assert real Agent Test and Workbench route artifacts
+      - name: Assert real Agent, Workbench and knowledge route artifacts
         if: matrix.service == 'app'
         run: |
           set -euo pipefail
@@ -134,6 +138,11 @@ jobs:
               "/api/v1/ai/agents/[id]/versions/[vid]/test/route",
               "/api/v1/ai/workbench/runs/route",
               "/app/ai/workbench/page",
+              "/app/ai/knowledge/sources/page",
+              "/api/v1/ai/knowledge/embedding/route",
+              "/api/v1/ai/knowledge/embedding/validate/route",
+              "/api/v1/ai/knowledge/sources/upload/route",
+              "/api/v1/ai/knowledge/sources/[id]/trechos/route",
             ];
             for (const route of routes) {
               if (!manifest[route] || !fs.existsSync("/app/.next/server/" + manifest[route])) {
@@ -142,6 +151,18 @@ jobs:
             }
             console.log(JSON.stringify({ routes, artifacts_present: true }));
           ' > arm64-routes.json
+          docker run --rm --network none --entrypoint sh ainativecrm-app:arm64-pr -c \
+            'grep -rl "embedding-configuration" /app/.next/static/chunks >/dev/null'
+      - name: Assert RAG worker source and model dependency artifacts
+        if: matrix.service == 'worker'
+        run: |
+          docker run --rm --network none --entrypoint node ainativecrm-worker:arm64-pr -e '
+            const fs = require("node:fs");
+            const files = ["workers/rag-indexer.ts", "lib/ai/embed.ts", "lib/ai/embeddings/configuration.ts", "lib/agent-engine/edge/llm/embedding-provider.ts", "lib/mcp/tools/evolucao.ts"];
+            for (const file of files) if (!fs.existsSync("/app/" + file)) throw new Error("Missing RAG dependency: " + file);
+            require.resolve("@ai-sdk/openai");
+            console.log(JSON.stringify({ files, dependencies_present: true }));
+          ' > arm64-worker-dependencies.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: arm64-pr-${{ matrix.service }}-${{ env.SOURCE_SHA }}

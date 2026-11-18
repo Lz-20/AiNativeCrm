@@ -138,7 +138,7 @@ create or replace function public.fn_search_knowledge_profile(
  p_organization_id uuid,p_source_ids uuid[],p_embedding public.vector,p_fingerprint text,p_dimensions integer,
  p_k integer default 5,p_threshold real default 0.4
 ) returns table(chunk_id uuid,knowledge_source_id uuid,source_name text,content text,similarity real,metadata jsonb,
- index_version_id uuid,position integer,content_hash text)
+ index_version_id uuid,"position" integer,content_hash text)
 language plpgsql stable security definer set search_path=pg_catalog,public as $$
 begin
  if auth.uid() is not null and not public.fn_role_at_least(p_organization_id,'viewer')

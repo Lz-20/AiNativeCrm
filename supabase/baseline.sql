@@ -38724,7 +38724,7 @@ create or replace function public.fn_search_knowledge_profile(
  p_organization_id uuid,p_source_ids uuid[],p_embedding public.vector,p_fingerprint text,p_dimensions integer,
  p_k integer default 5,p_threshold real default 0.4
 ) returns table(chunk_id uuid,knowledge_source_id uuid,source_name text,content text,similarity real,metadata jsonb,
- index_version_id uuid,position integer,content_hash text)
+ index_version_id uuid,"position" integer,content_hash text)
 language plpgsql stable security definer set search_path=pg_catalog,public as $$
 begin
  if auth.uid() is not null and not public.fn_role_at_least(p_organization_id,'viewer')
@@ -38870,3 +38870,40 @@ revoke execute on function public.retrieve_top_k_chunks(uuid,uuid,public.vector,
 grant execute on function public.retrieve_top_k_chunks(uuid,uuid,public.vector,integer,real) to authenticated,service_role;
 
 notify pgrst, 'reload schema';
+
+-- ---- VARREDURA anon: fecha os apêndices posteriores à migration 0116 ----
+-- O bloco original 0116 precede as migrations acrescentadas ao baseline ao
+-- longo do tempo. Reaplicar a mesma cura no fim mantém seguro também o caminho
+-- install/update: funções SECURITY DEFINER criadas acima não ficam expostas.
+do $$
+declare
+  f record;
+  tinha_auth boolean;
+  tinha_service boolean;
+begin
+  if to_regrole('anon') is null then
+    return;
+  end if;
+
+  for f in
+    select p.oid, p.oid::regprocedure as assinatura
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and p.prosecdef
+  loop
+    tinha_auth := to_regrole('authenticated') is not null
+                  and has_function_privilege('authenticated', f.oid, 'EXECUTE');
+    tinha_service := to_regrole('service_role') is not null
+                     and has_function_privilege('service_role', f.oid, 'EXECUTE');
+
+    execute format('revoke execute on function %s from public, anon', f.assinatura);
+
+    if tinha_auth then
+      execute format('grant execute on function %s to authenticated', f.assinatura);
+    end if;
+    if tinha_service then
+      execute format('grant execute on function %s to service_role', f.assinatura);
+    end if;
+  end loop;
+end $$;
