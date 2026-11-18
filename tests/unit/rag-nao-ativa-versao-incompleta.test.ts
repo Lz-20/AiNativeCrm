@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { indexarFonte } from "@/workers/rag-indexer";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { embedText } from "@/lib/ai/embed";
+import { embeddingProfile } from "@/lib/ai/embeddings/profile";
 import {
   activateVersion,
   createKnowledgeVersion,
@@ -66,11 +67,13 @@ const FAQ = [
 let falhaDeUpsert: (posicao: number) => string | null = () => null;
 /** Posições em que o `embedText` rejeita. */
 let falhaDeEmbed: Set<number> = new Set();
+const written: Array<{ table: string; row: Record<string, unknown> }> = [];
 
 beforeEach(() => {
   vi.clearAllMocks();
   falhaDeUpsert = () => null;
   falhaDeEmbed = new Set();
+  written.length = 0;
 
   vi.mocked(createAdminClient).mockReturnValue({
     from: (tabela: string) => {
@@ -82,9 +85,10 @@ beforeEach(() => {
         };
         return cadeia;
       }
-      if (tabela === "ai_chunks") {
+      if (tabela === "ai_chunks" || tabela === "ai_embedding_chunks") {
         return {
           upsert: (linha: { position: number }) => {
+            written.push({ table: tabela, row: linha });
             const mensagem = falhaDeUpsert(linha.position);
             return Promise.resolve(mensagem ? { error: { message: mensagem } } : { error: null });
           },
@@ -110,6 +114,22 @@ beforeEach(() => {
 });
 
 describe("indexarFonte — falha parcial não ativa versão", () => {
+  it("freezes the configured profile and stores 1024 vectors in the parallel table", async () => {
+    const profile = embeddingProfile({ provider: "siliconflow", base_url: "https://api.siliconflow.cn/v1", model: "BAAI/bge-m3", dimensions: 1024, model_revision: "1", enabled: true });
+    vi.mocked(embedText).mockResolvedValue({ embedding: Array(1024).fill(0.1), promptTokens: 5, model: profile.fingerprint, profile });
+    expect(await indexarFonte(FONTE as never, { ...CHAVE, profile } as never, {})).toMatchObject({ tipo: "ok" });
+    expect(createKnowledgeVersion).toHaveBeenCalledWith(expect.objectContaining({ embeddingProfile: profile }));
+    expect(written).toHaveLength(2);
+    for (const item of written) expect(item).toMatchObject({ table: "ai_embedding_chunks", row: { embedding_dims: 1024, embedding_fingerprint: profile.fingerprint } });
+    expect(activateVersion).toHaveBeenCalledWith(expect.objectContaining({ embeddingFingerprint: profile.fingerprint }));
+  });
+
+  it("partial failures in the new vector store do not activate the new profile", async () => {
+    const profile = embeddingProfile({ provider: "siliconflow", base_url: "https://api.siliconflow.cn/v1", model: "BAAI/bge-m3", dimensions: 1024, model_revision: "1", enabled: true });
+    falhaDeUpsert = (position) => position === 1 ? "synthetic-failure" : null;
+    expect(await indexarFonte(FONTE as never, { ...CHAVE, profile } as never, {})).toMatchObject({ tipo: "erro" });
+    expect(activateVersion).not.toHaveBeenCalled();
+  });
   it("grava os 2 trechos: ok + markVersionReady + activateVersion", async () => {
     const resultado = await indexarFonte(FONTE as never, CHAVE as never, {});
 

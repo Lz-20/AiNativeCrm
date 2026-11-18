@@ -130,7 +130,7 @@ export function NovoMaterialDialog({ aberto, onFechar, onCriado, podeIndexar }: 
       toast.success(
         podeIndexar
           ? t("Material cadastrado. Estou preparando — em instantes o agente já sabe.")
-          : t("Material cadastrado. Ele fica esperando a chave da OpenAI para ser preparado."),
+          : t("Material cadastrado. Ele aguarda a configuração de embedding para ser preparado."),
       );
       limpar();
       onCriado();
@@ -250,7 +250,7 @@ export function NovoMaterialDialog({ aberto, onFechar, onCriado, podeIndexar }: 
           {!podeIndexar ? (
             <p className="text-xs text-warning-fg" data-testid="material-aviso-sem-chave">
               {t(
-                "Sem uma chave da OpenAI, o material fica guardado e esperando — o agente só passa a conhecê-lo depois que a chave for cadastrada.",
+                "Sem embedding configurado, o material fica guardado. Configure e valide o provedor de conhecimento antes de indexar.",
               )}
             </p>
           ) : null}

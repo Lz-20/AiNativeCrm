@@ -183,6 +183,7 @@ export async function ingestConversationsBatch(
       knowledgeSourceId: sourceId,
       agentId,
       sourceType: "conversas",
+      ...(chave.profile ? { embeddingProfile: chave.profile } : {}),
     });
     versionId = v.versionId;
   } catch (err) {
@@ -314,7 +315,7 @@ export async function ingestConversationsBatch(
         break;
       }
 
-      const { error: upsertErr } = await admin.from("ai_chunks").upsert(
+      const { error: upsertErr } = await admin.from(chave.profile ? "ai_embedding_chunks" : "ai_chunks").upsert(
         {
           organization_id: organizationId,
           kb_version_id: versionId,
@@ -324,6 +325,7 @@ export async function ingestConversationsBatch(
           content_hash: contentHash,
           token_count: Math.ceil(content.length / 4),
           embedding: embedding as unknown as string,
+          ...(chave.profile ? { embedding_dims: chave.profile.dimensions, embedding_fingerprint: chave.profile.fingerprint } : {}),
           metadata: {
             source_type: "conversas",
             conversation_id: conv.id,
@@ -383,7 +385,8 @@ export async function ingestConversationsBatch(
   try {
     if (totalChunkInserts > 0) {
       await markVersionReady(versionId, organizationId, totalChunkInserts);
-      await activateVersion({ organizationId, knowledgeSourceId: sourceId, versionId });
+      await activateVersion({ organizationId, knowledgeSourceId: sourceId, versionId,
+        ...(chave.profile ? { embeddingFingerprint: chave.profile.fingerprint } : {}) });
     } else {
       await markVersionFailed(versionId, organizationId, "no_chunks_ingested");
     }

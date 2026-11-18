@@ -18,6 +18,7 @@ import {
 } from "@/hooks/ai/useKnowledgeSources";
 import { KnowledgeSourceCard } from "@/components/ai/KnowledgeSourceCard";
 import { NovoMaterialDialog } from "@/components/ai/NovoMaterialDialog";
+import { EmbeddingConfigurationPanel } from "@/components/ai/EmbeddingConfigurationPanel";
 import {
   ChaveDeConhecimento,
   type EstadoDaChave,
@@ -30,15 +31,17 @@ export interface AgenteQueUsa {
 }
 
 interface Props {
+  canConfigureEmbedding?: boolean;
   initialSources: SourceRow[];
   initialChave: EstadoDaChave;
   agentes: AgenteQueUsa[];
 }
 
-export function AcervoClient({ initialSources, initialChave, agentes }: Props) {
+export function AcervoClient({ initialSources, initialChave, agentes, canConfigureEmbedding = false }: Props) {
   const t = useT();
   const qc = useQueryClient();
   const [novoAberto, setNovoAberto] = useState(false);
+  const [profiled, setProfiled] = useState(initialChave.embedding_configured === true);
 
   const { data: sources } = useKnowledgeSources({ initialData: initialSources });
   const { data: chave } = useEstadoDaChave(initialChave);
@@ -70,7 +73,8 @@ export function AcervoClient({ initialSources, initialChave, agentes }: Props) {
 
   return (
     <div className="space-y-5">
-      <ChaveDeConhecimento estado={estado} onChaveCadastrada={recarregar} />
+      <EmbeddingConfigurationPanel canWrite={canConfigureEmbedding} onConfigured={setProfiled} onRefresh={recarregar} />
+      {!profiled && <ChaveDeConhecimento estado={estado} onChaveCadastrada={recarregar} />}
 
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm text-text-muted">

@@ -75,8 +75,16 @@ export async function GET(
     return ok({ nome: (fonte as { name: string }).name, trechos: [], total: 0 }, { requestId });
   }
 
+  const { data: index, error: indexError } = await supabase.from("ai_knowledge_versions")
+    .select("embedding_model, knowledge_source_id")
+    .eq("id", versao).eq("organization_id", activeOrg.orgId).maybeSingle();
+  if (indexError) return fail("internal_error", "Erro ao ler a versão do índice.", 500, { requestId });
+  if (!index) return fail("not_found", t("Material não encontrado."), 404, { requestId });
+  const profiled = index.embedding_model?.startsWith("embedding:v1:") === true;
+  if (profiled && index.knowledge_source_id !== sourceId)
+    return fail("not_found", t("Material não encontrado."), 404, { requestId });
   let chunksQuery = supabase
-    .from("ai_chunks")
+    .from(profiled ? "ai_embedding_chunks" : "ai_chunks")
     .select("id, kb_version_id, position, content, content_hash, token_count, metadata")
     .eq("organization_id", activeOrg.orgId)
     .eq("knowledge_source_id", sourceId)

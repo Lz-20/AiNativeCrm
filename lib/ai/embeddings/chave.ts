@@ -1,70 +1,31 @@
 /**
- * DE ONDE VEM A CHAVE QUE INDEXA E CONSULTA O SEU MATERIAL.
- *
- * ## O defeito que este arquivo existe para acabar
- *
- * `lib/ai/embed.ts` lia `AI_GATEWAY_API_KEY`/`OPENAI_API_KEY` do `process.env` e
- * mais nada. Ou seja: **cadastrar a chave da OpenAI pela tela não habilitava a
- * base de conhecimento.** Só editar o `.env` da instalação habilitava.
- *
- * Isso é pior do que parece, porque o produto PROMETE o contrário em dois
- * lugares que a pessoa lê antes de tentar:
- *
- *  - `lib/ai/pontos/provedores.ts` descreve a OpenAI como *"necessário para
- *    transcrever áudio e **para indexar o seu material**"*;
- *  - o painel `/app/ai/providers` lista `embedding_indexar` e
- *    `embedding_consultar` entre os pontos de IA da organização.
- *
- * Tela que oferece e motor que ignora é o anti-pattern que este repo mais
- * persegue. E o desfecho era mudo: sem chave o worker devolvia
- * `skipped: openai_key_missing`, o drain tratava `skipped` como sucesso, e a
- * linha da fonte continuava dizendo `status='ready'` para sempre.
- *
- * ## A escada, do mais específico ao mais genérico
- *
- *  1. **Binding do ponto** (`ai_purpose_bindings`) — a escolha explícita feita
- *     no painel de provedores. É a superfície que o operador enxerga, então ela
- *     vence.
- *  2. **Credencial OpenAI da organização** (`ai_provider_credentials`, ativa e
- *     validada). É o degrau que faz "cadastrei a chave na tela e funcionou"
- *     virar verdade sem exigir que ninguém entenda o que é um binding.
- *  3. **Gateway da Vercel** (`AI_GATEWAY_API_KEY`) — quando a instalação roteia
- *     tudo por ele.
- *  4. **Chave da instalação** (`OPENAI_API_KEY`) — o que o `install.sh` pede.
- *  5. Nada. E "nada" é uma resposta legítima que o chamador precisa saber
- *     mostrar, não um erro para engolir.
- *
- * A decisão devolve a ORIGEM junto com a chave. Não é enfeite: é o que permite
- * a tela responder *"está usando a chave X **porque**…"* em vez de deixar o dono
- * do negócio adivinhando por que a indexação não anda.
- *
- * ## O modelo NÃO é escolha
- *
- * `text-embedding-3-small`, 1536 dimensões, dos dois lados. Indexação e busca
- * são coordenadas de um mesmo mapa: trocar só um lado não dá erro nenhum — o
- * agente simplesmente para de achar o seu conteúdo. É por isso que o binding
- * aqui governa a CHAVE e não o MODELO, e por isso que a versão de índice grava
- * com que modelo foi calculada (`ai_knowledge_versions.embedding_model`).
+ * Embedding por organização. Uma configuração explícita governa índice e busca:
+ * provider/endpoint/model/dimensions/revision + credencial cifrada do mesmo tenant.
+ * Desativada, inválida ou sem chave válida falha fechada, sem fallback de provedor.
+ * Sem configuração nova, preserva-se o caminho legado OpenAI de 1536 dimensões.
  */
 import { byteaToBuffer, decryptKey } from "@/lib/crypto/aes_gcm";
 import { env } from "@/lib/env";
-import { logger } from "@/lib/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { readEmbeddingConfiguration, credentialForEmbedding } from "./configuration";
+import { EmbeddingConfigurationError, type EmbeddingProfile } from "./profile";
 
 /** Os dois pontos de IA que consomem embedding (`lib/ai/pontos/registro.ts`). */
 export type PontoDeEmbedding = "embedding_indexar" | "embedding_consultar";
 
-/** Pin de contrato: o mesmo modelo dos dois lados, com a mesma dimensão. */
+/** Identidade legada, não o perfil configurável de novos índices. */
 export const MODELO_DE_EMBEDDING = "openai/text-embedding-3-small";
 export const DIMENSOES_DO_EMBEDDING = 1536;
 
 export type OrigemDaChave =
   | "binding_do_ponto"
   | "credencial_da_organizacao"
+  | "configuracao_embedding"
   | "gateway_da_instalacao"
   | "chave_da_instalacao";
 
 export const EXPLICACAO_DA_ORIGEM: Record<OrigemDaChave, string> = {
+  configuracao_embedding: "Configurada independentemente para a base de conhecimento.",
   binding_do_ponto: "Escolhida por você no painel de Provedores.",
   credencial_da_organizacao: "Usando a chave OpenAI cadastrada em Credenciais.",
   gateway_da_instalacao: "Usando o gateway de IA configurado nesta instalação.",
@@ -72,6 +33,9 @@ export const EXPLICACAO_DA_ORIGEM: Record<OrigemDaChave, string> = {
 };
 
 export interface ChaveDeEmbedding {
+  organizationId?: string;
+  /** Immutable non-secret vector-space identity for explicitly configured RAG. */
+  profile?: EmbeddingProfile;
   /** Plaintext. Vive só no escopo de quem chamou — nunca logada nem persistida. */
   apiKey: string | null;
   /** `null` = falar direto com a OpenAI. */
@@ -96,21 +60,23 @@ export async function resolverChaveDeEmbedding(
   organizationId: string,
   ponto: PontoDeEmbedding = "embedding_indexar",
 ): Promise<ChaveDeEmbedding | null> {
+  const configured = await readEmbeddingConfiguration(organizationId);
+  if (configured) {
+    const resolved = await credentialForEmbedding(organizationId, configured);
+    return { organizationId, apiKey: resolved.apiKey, baseUrl: resolved.profile.baseUrl, viaGateway: false,
+      origem: "configuracao_embedding", rotulo: resolved.label, avisos: [], profile: resolved.profile };
+  }
   const avisos: string[] = [];
 
   // 1 · A escolha explícita do painel.
   const binding = await lerBindingDeEmbedding(ponto, organizationId);
+  if (binding?.base_url && binding.base_url.replace(/\/$/, "") !== "https://api.openai.com/v1")
+    throw new EmbeddingConfigurationError("embedding_endpoint_requires_profile");
+  if (binding?.model_id && ![MODELO_DE_EMBEDDING, "text-embedding-3-small"].includes(binding.model_id))
+    throw new EmbeddingConfigurationError("embedding_model_requires_profile");
   if (binding?.credential_id) {
     const credencial = await decifrarCredencial(binding.credential_id, organizationId);
     if (credencial) {
-      if (binding.model_id && !/embed/i.test(binding.model_id)) {
-        // Falha ABERTA na informação: a chamada segue com o modelo do contrato,
-        // e quem configurou fica sabendo que o campo dele não é obedecido.
-        avisos.push(
-          `O painel aponta "${binding.model_id}" para este ponto, mas o modelo de embedding é fixo ` +
-            `(${MODELO_DE_EMBEDDING}) — trocá-lo exigiria reindexar todo o material de uma vez.`,
-        );
-      }
       return {
         apiKey: credencial.apiKey,
         baseUrl: binding.base_url,
@@ -120,10 +86,7 @@ export async function resolverChaveDeEmbedding(
         avisos,
       };
     }
-    avisos.push(
-      "A chave escolhida no painel de Provedores para este ponto não está utilizável " +
-        "(desativada, apagada ou ainda não validada). Seguindo com a próxima chave disponível.",
-    );
+    throw new EmbeddingConfigurationError("embedding_credential_unavailable");
   }
 
   // 2 · A credencial OpenAI da organização, sem exigir binding nenhum.
@@ -180,7 +143,15 @@ export async function resolverChaveDeEmbedding(
  * cadastrado a chave pela tela.
  */
 export async function temChaveDeEmbedding(organizationId: string): Promise<boolean> {
-  return (await resolverChaveDeEmbedding(organizationId)) !== null;
+  try {
+    return (await resolverChaveDeEmbedding(organizationId)) !== null;
+  } catch (error) {
+    // Uploads may wait for a staged credential; do not fall back or call a provider.
+    if (error instanceof EmbeddingConfigurationError && [
+      "embedding_disabled", "embedding_credential_unavailable", "credential_provider_mismatch",
+    ].includes(error.code)) return false;
+    throw error;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -200,23 +171,17 @@ async function lerBindingDeEmbedding(
 ): Promise<LinhaDeBinding | null> {
   try {
     const admin = createAdminClient();
-    const { data } = await admin
+    const { data, error } = await admin
       .from("ai_purpose_bindings")
       .select("credential_id, model_id, base_url")
       .eq("organization_id", organizationId)
       .eq("purpose", ponto)
       .eq("is_enabled", true)
       .maybeSingle();
+    if (error) throw new EmbeddingConfigurationError("embedding_binding_unavailable");
     return (data as LinhaDeBinding | null) ?? null;
-  } catch (err) {
-    // Tabela ausente (clone sem o baseline aplicado) não pode derrubar a
-    // indexação — mas também não pode passar em silêncio.
-    logger.warn("[embedding] não consegui ler o binding do ponto", {
-      organization_id: organizationId,
-      purpose: ponto,
-      motivo: err instanceof Error ? err.message : String(err),
-    });
-    return null;
+  } catch {
+    throw new EmbeddingConfigurationError("embedding_binding_unavailable");
   }
 }
 
@@ -231,6 +196,7 @@ async function decifrarCredencial(
       .select("label, api_key_encrypted, api_key_iv, api_key_tag")
       .eq("id", credentialId)
       .eq("organization_id", organizationId)
+      .eq("provider", "openai")
       .eq("is_active", true)
       .not("validated_at", "is", null)
       .maybeSingle();

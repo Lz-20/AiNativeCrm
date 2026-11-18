@@ -73,7 +73,7 @@ export async function buscarConhecimento(
   }
 
   const embed = deps?.embed ?? embedText;
-  const { embedding } = await embed(p.pergunta, {
+  const { embedding, profile, model } = await embed(p.pergunta, {
     organizationId: p.organizationId,
     ponto: "embedding_consultar",
   });
@@ -84,17 +84,21 @@ export async function buscarConhecimento(
   // se faltou pouco ou se nao ha nada parecido no acervo.
   const PISO = -1;
 
-  const { data, error } = await supabase.rpc("fn_buscar_trechos_das_fontes", {
+  const { data, error } = profile ? await supabase.rpc("fn_search_knowledge_profile", {
+    p_organization_id: p.organizationId, p_source_ids: p.knowledgeSourceIds,
+    p_embedding: `[${embedding.join(",")}]`, p_fingerprint: profile.fingerprint,
+    p_dimensions: profile.dimensions, p_k: p.topK, p_threshold: PISO,
+  }) : await supabase.rpc("fn_buscar_trechos_das_fontes", {
     p_organization_id: p.organizationId,
     p_source_ids: p.knowledgeSourceIds,
     p_embedding: `[${embedding.join(",")}]`,
     p_k: p.topK,
     p_threshold: PISO,
-    p_embedding_model: MODELO_DE_EMBEDDING,
+    p_embedding_model: model ?? MODELO_DE_EMBEDDING,
   });
 
   if (error) {
-    throw new Error(`busca_de_conhecimento_falhou: ${error.message}`);
+    throw new Error("busca_de_conhecimento_falhou");
   }
 
   const linhas = (data ?? []) as LinhaDaRpc[];
@@ -103,14 +107,14 @@ export async function buscarConhecimento(
   // Leia a versão do CHUNK observado, nunca o ponteiro ativo da fonte: uma
   // reindexação concorrente pode já tê-lo trocado depois da busca vetorial.
   const { data: chunks, error: provenanceError } = encontrados.length
-    ? await supabase.from("ai_chunks")
+    ? await supabase.from(profile ? "ai_embedding_chunks" : "ai_chunks")
         .select("id, knowledge_source_id, kb_version_id, position, content_hash")
         .eq("organization_id", p.organizationId)
         .in("knowledge_source_id", p.knowledgeSourceIds)
         .in("id", encontrados.map((l) => l.chunk_id))
     : { data: [], error: null };
   if (provenanceError)
-    throw new Error(`proveniencia_de_conhecimento_falhou: ${provenanceError.message}`);
+    throw new Error("proveniencia_de_conhecimento_falhou");
   const provenance = new Map((chunks ?? []).map((chunk) => [chunk.id, chunk]));
 
   return {

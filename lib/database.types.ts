@@ -50,7 +50,7 @@ export type Database = {
           revision?: number;
           updated_at?: string;
         };
-        Relationships: [];
+          Relationships: [];
       };
 
       ai_customer_memories: {
@@ -2311,6 +2311,118 @@ export type Database = {
           },
         ];
       };
+      ai_embedding_configurations: {
+        Row: {
+          organization_id: string;
+          provider: string;
+          base_url: string;
+          model: string;
+          dimensions: number;
+          model_revision: string;
+          enabled: boolean;
+          fingerprint: string;
+          credential_id: string | null;
+          version: string;
+          updated_at: string;
+        };
+        Insert: {
+          organization_id: string;
+          provider: string;
+          base_url: string;
+          model: string;
+          dimensions: number;
+          model_revision: string;
+          enabled?: boolean;
+          fingerprint: string;
+          credential_id?: string | null;
+          version?: string;
+          updated_at?: string;
+        };
+        Update: {
+          organization_id?: string;
+          provider?: string;
+          base_url?: string;
+          model?: string;
+          dimensions?: number;
+          model_revision?: string;
+          enabled?: boolean;
+          fingerprint?: string;
+          credential_id?: string | null;
+          version?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      ai_embedding_chunks: {
+        Row: {
+          content: string;
+          content_hash: string;
+          created_at: string;
+          embedding: string;
+          embedding_dims: number;
+          embedding_fingerprint: string;
+          id: string;
+          kb_version_id: string;
+          knowledge_source_id: string;
+          metadata: Json;
+          organization_id: string;
+          position: number;
+          token_count: number;
+        };
+        Insert: {
+          content: string;
+          content_hash: string;
+          created_at?: string;
+          embedding: string;
+          embedding_dims: number;
+          embedding_fingerprint: string;
+          id?: string;
+          kb_version_id: string;
+          knowledge_source_id: string;
+          metadata?: Json;
+          organization_id: string;
+          position: number;
+          token_count: number;
+        };
+        Update: {
+          content?: string;
+          content_hash?: string;
+          created_at?: string;
+          embedding?: string;
+          embedding_dims?: number;
+          embedding_fingerprint?: string;
+          id?: string;
+          kb_version_id?: string;
+          knowledge_source_id?: string;
+          metadata?: Json;
+          organization_id?: string;
+          position?: number;
+          token_count?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ai_embedding_chunks_kb_version_id_fkey";
+            columns: ["kb_version_id"];
+            isOneToOne: false;
+            referencedRelation: "ai_knowledge_versions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "ai_embedding_chunks_knowledge_source_id_fkey";
+            columns: ["knowledge_source_id"];
+            isOneToOne: false;
+            referencedRelation: "ai_knowledge_sources";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "ai_embedding_chunks_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       ai_chunks: {
         Row: {
           content: string;
@@ -2609,6 +2721,7 @@ export type Database = {
           description: string | null;
           embedding_dims: number | null;
           embedding_model: string | null;
+          embedding_profile: Json | null;
           error_message: string | null;
           id: string;
           indexed_at: string | null;
@@ -2628,6 +2741,7 @@ export type Database = {
           description?: string | null;
           embedding_dims?: number | null;
           embedding_model?: string | null;
+          embedding_profile?: Json | null;
           error_message?: string | null;
           id?: string;
           indexed_at?: string | null;
@@ -2647,6 +2761,7 @@ export type Database = {
           description?: string | null;
           embedding_dims?: number | null;
           embedding_model?: string | null;
+          embedding_profile?: Json | null;
           error_message?: string | null;
           id?: string;
           indexed_at?: string | null;
@@ -9987,6 +10102,14 @@ export type Database = {
       fn_attendant_metrics: {
         Args: { p_from: string; p_org: string; p_owner?: string; p_to: string };
         Returns: Json;
+      };
+      fn_search_knowledge_profile: {
+        Args: { p_organization_id: string; p_source_ids: string[]; p_embedding: string; p_fingerprint: string; p_dimensions: number; p_k?: number; p_threshold?: number };
+        Returns: { chunk_id: string; knowledge_source_id: string; source_name: string; content: string; similarity: number; metadata: Json; index_version_id: string; position: number; content_hash: string }[];
+      };
+      fn_activate_embedding_version: {
+        Args: { p_organization_id: string; p_source_id: string; p_version_id: string; p_fingerprint: string };
+        Returns: undefined;
       };
       fn_buscar_trechos_das_fontes: {
         Args: {

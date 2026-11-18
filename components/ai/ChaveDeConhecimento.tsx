@@ -34,6 +34,8 @@ import { apiClient } from "@/lib/api/client";
 import { showApiError } from "@/components/feedback/ApiErrorToast";
 
 export interface EstadoDaChave {
+  embedding_configured?: boolean;
+  embedding_error?: string | null;
   pode_indexar: boolean;
   origem: string | null;
   explicacao: string | null;

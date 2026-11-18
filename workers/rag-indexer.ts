@@ -376,6 +376,7 @@ export async function indexarFonte(
     knowledgeSourceId: fonte.id,
     agentId: fonte.agent_id,
     sourceType: tipo,
+    ...(chave.profile ? { embeddingProfile: chave.profile } : {}),
   });
 
   console.warn(
@@ -405,7 +406,7 @@ export async function indexarFonte(
       return { tipo: "erro", detalhe: `embedding falhou no trecho ${i}: ${detalhe}` };
     }
 
-    const { error: upErr } = await admin.from("ai_chunks").upsert(
+    const { error: upErr } = await admin.from(chave.profile ? "ai_embedding_chunks" : "ai_chunks").upsert(
       {
         organization_id: fonte.organization_id,
         kb_version_id: versionId,
@@ -415,6 +416,7 @@ export async function indexarFonte(
         content_hash: computeContentHash(p.content),
         token_count: estimateTokens(p.content),
         embedding: embedding as unknown as string,
+        ...(chave.profile ? { embedding_dims: chave.profile.dimensions, embedding_fingerprint: chave.profile.fingerprint } : {}),
         metadata: p.metadata,
       },
       // A constraint que EXISTE é `ai_chunks_position_unique`
@@ -452,6 +454,7 @@ export async function indexarFonte(
     organizationId: fonte.organization_id,
     knowledgeSourceId: fonte.id,
     versionId,
+    ...(chave.profile ? { embeddingFingerprint: chave.profile.fingerprint } : {}),
   });
 
   return { tipo: "ok", versionId, chunks: gravados };
@@ -576,14 +579,14 @@ export async function processRagIndexer(row: EventRow): Promise<HandlerResult> {
       await marcarFonte(row.organization_id, fonte.id, {
         last_index_status: "sem_credencial",
         last_index_error:
-          "Falta uma chave da OpenAI para indexar. Cadastre uma em IA › Credenciais " +
-          "(ou defina OPENAI_API_KEY na instalação) e este material entra sozinho.",
+          "Falta uma credencial de embedding para indexar. Configure a base de conhecimento " +
+          "e valide o provedor antes de ativar a indexação.",
       });
       await avisarNaCentral(
         row.organization_id,
         fonte,
         `"${fonte.name}" ainda não entrou na base de conhecimento`,
-        "Falta uma chave da OpenAI para preparar o material. Cadastre uma em IA › Credenciais " +
+        "Falta uma credencial de embedding para preparar o material. Configure o provedor de conhecimento " +
           "e a indexação recomeça sozinha — nada do que você enviou foi perdido.",
       );
       // `retry` e não `skipped`: o drain conta `skipped` como sucesso e marca o

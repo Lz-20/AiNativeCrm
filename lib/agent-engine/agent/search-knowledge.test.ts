@@ -148,7 +148,7 @@ describe('searchKnowledge', () => {
   it('falha ao registrar NUNCA derruba a busca — mas GRITA no log', async () => {
     const pool = {
       query: async (sql: string) => {
-        if (sql.includes('knowledge_searches')) throw new Error('tabela não existe');
+        if (sql.includes('knowledge_searches')) throw new Error('tabela não existe: synthetic-private-query');
         return {
           rows: [{ chunk_id: 'c1', knowledge_source_id: null, content: 'texto', similarity: 0.9, metadata: null }],
         };
@@ -167,7 +167,8 @@ describe('searchKnowledge', () => {
     // Catch mudo é o pior caso do painel: insert falhando SEMPRE (grant, tipo,
     // coluna) mostraria "zero buscas", indistinguível de "ninguém buscou".
     expect(warn).toHaveBeenCalledOnce();
-    expect(warn.mock.calls[0]?.[1]).toMatchObject({ error: expect.stringContaining('tabela não existe') });
+    expect(warn.mock.calls[0]?.[1]).toMatchObject({ error: 'knowledge_telemetry_failed' });
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('synthetic-private-query');
   });
 
   it('top_score NaN (chunk de embedding zerado) vira null, não envenena a coluna', async () => {
