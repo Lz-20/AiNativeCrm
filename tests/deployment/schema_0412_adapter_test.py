@@ -39,10 +39,17 @@ def run():
         change=pg.m.delta(before,after);pg.m.check_delta_scope(change)
         db.sql('DROP DATABASE schema0412_restore WITH (FORCE);')
         system_id=db.sql('SELECT system_identifier::text FROM pg_control_system()')
+        def fixture_identity(value):
+            # Production remains pinned to Staging 17.6. This process accepts
+            # only this labelled disposable cluster and the requested test major.
+            assert value['system_identifier']==system_id
+            assert value['server_version'].split('.')[0]==major
+            assert set(value['databases'])=={'postgres','_supabase'}
         state={'current':{'sha':'synthetic-current'},'pending':None}
         def state_value():return copy.deepcopy(state)
         with contextlib.ExitStack() as stack:
             stack.enter_context(patch.multiple(rt.b,SOURCE_CONTAINER_ID=db.cid,SOURCE_SYSTEM_ID=system_id))
+            stack.enter_context(patch.object(rt.b,'validate_identity',fixture_identity))
             stack.enter_context(patch.multiple(rt.e,STATE=state_dir))
             stack.enter_context(patch.multiple(rt.m,STATE=state_dir,DIRECTORY=directory,JOURNAL=directory/'journal.json'))
             stack.enter_context(patch.object(rt.b,'realtime_origin',lambda _:rt.cp.SOURCE_CONTRACT))
