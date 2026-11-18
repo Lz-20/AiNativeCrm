@@ -25,6 +25,8 @@ import urllib.parse
 import urllib.request
 import uuid
 
+sys.dont_write_bytecode = True
+
 SERVICES = ('app', 'worker', 'scheduler')
 PROJECT = 'ainativecrm-staging'
 SUPABASE_PROJECT = 'ainativecrm-staging-supabase'
@@ -141,8 +143,12 @@ class ReleaseEngine:
         state=self.rt.load_state()
         operation=request['operation']
         if operation=='status':return self.rt.status(state)
-        schema=state.get('approved_schema_sha256')
-        validate_release(state.get('current'),schema)
+        transition=getattr(self.rt,'schema_context',lambda _state: None)(state)
+        schema=transition['database_schema'] if transition else state.get('approved_schema_sha256')
+        def compatible(release):
+            validate_release(release,release.get('schema_sha256') if transition else schema)
+            if transition:self.rt.verify_application_compatibility(release,transition)
+        compatible(state.get('current'))
         if operation=='deploy':
             need(not self.rt.is_paused(),'deployments_paused')
             need(not state.get('pending'),'unfinished_deployment_requires_rollback')
@@ -157,7 +163,7 @@ class ReleaseEngine:
             # Interrupted updates leave current at the last known successful release.
             target=copy.deepcopy(state['current'] if state.get('pending') else state.get('previous'))
             need(target is not None,'no_previous_release')
-            validate_release(target,schema)
+            compatible(target)
         self.rt.ensure_backup(state)
         self.rt.verify_current(state,recovery=operation=='rollback')
         before=self.rt.boundary()
@@ -175,6 +181,7 @@ class ReleaseEngine:
             self.rt.audit({'transaction':txid,'phase':'failed','error':code,'at':utcnow()})
             try:
                 if operation=='rollback':raise Failure('manual_rollback_failed')
+                compatible(prior)
                 self.rt.prepare_images(prior,use_cached=True)
                 self.rollout(prior)
                 self.rt.verify_boundary(before)
@@ -189,7 +196,8 @@ class ReleaseEngine:
         self.rt.save_state(state)
         self.rt.audit({'transaction':txid,'phase':'succeeded','operation':operation,'sha':target['sha'],'images':target['images'],'at':utcnow()})
         return {'ok':True,'result':operation+'ed' if operation=='deploy' else 'rolled_back','sha':target['sha'],
-                'schema_sha256':schema,'images':public_images(target),'health':health,'transaction':txid}
+                'schema_sha256':schema,'application_schema_sha256':target['schema_sha256'],
+                'images':public_images(target),'health':health,'transaction':txid}
 
 
 def secure_path(path, *, owner=0, mode=None, directory=False):
@@ -278,6 +286,35 @@ class RootRuntime:
     def save_state(self,state):atomic_json(STATE/'state.json',state)
     def is_paused(self):return (STATE/'paused').exists()
 
+    def schema_context(self,state):
+        marker=STATE/'schema-0412'/'journal.json'
+        if not marker.exists() and not marker.is_symlink() and not state.get('schema_0412'):
+            self._schema_transition=None;return None
+        for name in ('schema_0412.py','catalog_policy.py'):secure_path(INSTALL/name)
+        def load(name):
+            spec=importlib.util.spec_from_file_location('installed_'+name,INSTALL/(name+'.py'))
+            value=importlib.util.module_from_spec(spec);spec.loader.exec_module(value);return value
+        self._schema_module=load('schema_0412');cp=load('catalog_policy')
+        try:
+            secure_path(CONFIG/'catalog-policy.json',mode=0o600)
+            policy=cp.parse_policy((CONFIG/'catalog-policy.json').read_bytes())
+            cp.validate_policy(policy,state['approved_catalog_sha256'])
+            context=self._schema_module.read_context(state,policy,cp)
+        except (self._schema_module.TransitionError,cp.CatalogError) as error:raise Failure(error.code) from None
+        self._schema_transition=context;return context
+
+    def verify_application_compatibility(self,release,context):
+        # No automatic data/pointer rewrite when reverting an application image.
+        in_use=False
+        if release.get('schema_sha256')==self._schema_module.FROM_SCHEMA:
+            query="SELECT EXISTS(SELECT 1 FROM public.ai_embedding_configurations WHERE enabled) OR EXISTS(SELECT 1 FROM public.ai_knowledge_sources s JOIN public.ai_knowledge_versions v ON v.id=s.active_kb_version_id AND v.organization_id=s.organization_id WHERE v.embedding_profile IS NOT NULL);"
+            result=self.docker('exec',self.policy['db_container_id'],'psql','-X','-qAt','--no-password',
+                '-v','ON_ERROR_STOP=1','-U','supabase_admin','-d','postgres','-c',
+                'BEGIN READ ONLY; SET LOCAL statement_timeout=\'10s\'; '+query+' ROLLBACK;')
+            need(result.strip() in (b't',b'f'),'schema0412_profile_usage_probe');in_use=result.strip()==b't'
+        try:self._schema_module.validate_release(release,context,old_profile_in_use=in_use)
+        except self._schema_module.TransitionError as error:raise Failure(error.code) from None
+
     def audit(self,event):
         path=STATE/'deployments.jsonl'
         if path.exists():secure_path(path,mode=0o600)
@@ -330,6 +367,8 @@ class RootRuntime:
             policy=module.parse_policy(policy_path.read_bytes())
             module.validate_policy(policy,state['approved_catalog_sha256'])
         except module.CatalogError as error:raise Failure(error.code) from None
+        transition=self.schema_context(state)
+        if transition:policy=transition['policy']
         need(proof.get('catalog_policy_sha256')==module.digest(policy),'catalog_policy_proof_version')
         evidence=json.loads((directory/'evidence.json').read_bytes())
         need(all(evidence.get(k) is True for k in ('restore_verified','restart_verified','storage_verified'))
@@ -360,7 +399,10 @@ class RootRuntime:
         try:self.backup(state);valid=True
         except (Failure,OSError,ValueError):pass
         current=state.get('current',{})
-        return {'ok':True,'project':PROJECT,'sha':current.get('sha'),'schema_sha256':state.get('approved_schema_sha256'),
+        transition=self.schema_context(state)
+        return {'ok':True,'project':PROJECT,'sha':current.get('sha'),
+                'schema_sha256':transition['database_schema'] if transition else state.get('approved_schema_sha256'),
+                'application_schema_sha256':current.get('schema_sha256'),
                 'images':public_images(current),'backup_verified':valid,'rollback_verified':state.get('rollback_verified') is True,
                 'auto_deploy_enabled':state.get('auto_deploy_enabled') is True,'paused':self.is_paused(),
                 'recovery_required':bool(state.get('pending'))}
@@ -391,7 +433,13 @@ class RootRuntime:
         self.git('merge-base','--is-ancestor',previous_sha,sha)
         # Inspect the entire release interval, including schema changes later reverted.
         changes=self.git('log','--format=','--name-only','-z',previous_sha+'..'+sha,'--','supabase','lib/database.types.ts',':(glob)**/*.sql')
-        need(not changes.strip(b'\x00\r\n '),'schema_history_requires_operator_approval')
+        if changes.strip(b'\x00\r\n '):
+            transition=getattr(self,'_schema_transition',None)
+            need(transition is not None and request['schema_sha256']==self._schema_module.TO_SCHEMA,
+                 'schema_history_requires_operator_approval')
+            paths={p.strip('\r\n ') for p in changes.decode().split('\x00') if p.strip('\r\n ')}
+            need(paths<=self._schema_module.SCHEMA_PATHS,'schema0412_source_history_scope')
+            self.git('merge-base','--is-ancestor',self._schema_module.REVIEWED_SOURCE,sha)
         raw=self.git('ls-tree','-r','-z','--full-tree',sha,'--','supabase','lib/database.types.ts')
         need(b'supabase/baseline.sql\x00' in raw and b'lib/database.types.ts\x00' in raw,'source_schema_inventory_present')
         actual=schema_fingerprint(raw)

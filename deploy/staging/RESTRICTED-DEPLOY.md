@@ -69,6 +69,49 @@ false. Set `rollback_verified` only after the operator has actually exercised
 the preserved image/configuration rollback; enable automatic deployment only
 after the manual GitHub release and deliberate failure drill pass.
 
+### Independently approved Embedding 0412 expansion
+
+The optional `schema_0412.py`/`migrate_0412.py` protocol supports exactly the
+reviewed c5919aa → 6c66153 schema conversion. It is not an SSH operation and is
+not installed or activated by merging a PR. No sudoers, forced-command,
+container service set or Compose permission is added. See the operator review
+and isolated test evidence before requesting a separate installation approval.
+
+Independent root approval at `/etc/ainativecrm-staging-deploy/schema-0412-approval.json`
+pins the old policy/release, the fixed Git SQL SHA256, database identity and all
+exact added/removed Catalog rows. Original `approved_*` hashes and the original
+Realtime policy file remain unchanged. The derived policy is recalculated from
+the authenticated before/after catalogs, not supplied as a replacement hash.
+
+The future local root entry accepts only `--apply`, `--register` or
+`--retry-rolled-back`, runs only
+from its installed protected directory, uses the existing deployment/backup
+locks, and reads a separately installed `migration-0412.sql` whose bytes must
+match the reviewed Git object. It has no image-update operation. `--apply`
+requires fresh full backup/restore proof before a bounded DDL transaction and
+again after commit. A persistent journal and immutable receipts under the
+protected state directory block releases until registration completes.
+`--register` can complete a verified committed transition after interruption;
+it never re-executes SQL and refuses unexpected current/pending state.
+`--retry-rolled-back` independently proves the old static schema and cluster
+identity, refuses any still-held migration advisory lock, archives the entire
+failed evidence directory without deletion, then starts a new fixed attempt.
+It cannot be used for an expanded/committed schema or a changed release state.
+
+Registered state records a separate `schema_0412` receipt while old image
+declarations retain the old schema. Status reports the active database schema
+in `schema_sha256` and the real current image schema separately in
+`application_schema_sha256`. A new-schema source interval may contain only the
+four fixed reviewed schema paths, must include the reviewed Git source, and
+must have the exact new schema tree fingerprint. Other DDL remains blocked.
+
+App rollback never rolls back SQL or deletes the new tables. Only the approved
+immutable c5919aa image group is backward-compatible. Reverting to it is refused
+when any new embedding profile is enabled or a source points at a new-profile
+version; the controller never silently changes knowledge pointers. A failed
+rollback retains pending recovery state. Installation and real migration remain
+separate operator actions, never a consequence of CI approval alone.
+
 The legacy `current` entry has `kind: "legacy"`, `sha: null`,
 `schema_sha256`, and both `images` and `image_ids` mapping the three services to
 their actual local `sha256:...` image IDs. It is an r4 snapshot, not a Git commit.
