@@ -1,0 +1,58 @@
+name: schema-0412-ci
+
+on:
+  pull_request:
+    branches: [main, fix/realtime-catalog-drift]
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-protocol:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    concurrency:
+      group: schema-0412-${{ github.event.pull_request.number }}-pg${{ matrix.pg }}
+      cancel-in-progress: true
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ['15', '17']
+    env:
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+      TEST_PG_MAJOR: ${{ matrix.pg }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Pin source and reviewed application objects
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = aarch64
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git cat-file -e 'c5919aac3d3e670621ad3409e44c13c44ae8ea0e^{commit}'
+          git cat-file -e '6c661538b8fc69cdcd49763ae8579cc188d5c487^{commit}'
+          mkdir -p schema-0412-evidence
+          sha256sum deploy/staging/{engine,backup_verify,catalog_policy,schema_0412,migrate_0412}.py > schema-0412-evidence/controller-files.sha256
+          git rev-parse HEAD > schema-0412-evidence/protocol-source-sha.txt
+          git show '6c661538b8fc69cdcd49763ae8579cc188d5c487:supabase/migrations/20261118080000_0412_embedding_multiplos_provedores.sql' > schema-0412-evidence/migration-0412.sql
+          echo '36111c299829b91cb588c8cce81cd8de5643eb0d04b42577984dec79d4c80926  schema-0412-evidence/migration-0412.sql' | sha256sum -c -
+      - name: Controller, permission and deployment protocol regression
+        run: |
+          set -euo pipefail
+          python3 -m py_compile deploy/staging/{engine,backup_verify,catalog_policy,schema_0412,migrate_0412}.py
+          python3 -m unittest discover -s tests/deployment -p 'test_*.py' -v 2>&1 | tee schema-0412-evidence/python-tests.log
+          python3 tests/staging_ci_test.py -v 2>&1 | tee schema-0412-evidence/deployment-protocol.log
+      - name: Real isolated PostgreSQL install, exact delta, failure and restore checks
+        run: |
+          set -euo pipefail
+          python3 tests/deployment/schema_0412_isolated.py | tee schema-0412-evidence/postgres-output.log
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
+        with:
+          name: schema-0412-pg${{ matrix.pg }}-${{ env.SOURCE_SHA }}
+          path: schema-0412-evidence/
+          if-no-files-found: error
+          retention-days: 30

@@ -135,7 +135,7 @@ def ssh_request(request, output):
     response = json.loads(completed.stdout)
     if not isinstance(response, dict):
         raise ValueError("Server returned an invalid release response")
-    allowed = {"sha", "schema_sha256", "images", "backup_verified", "rollback_verified",
+    allowed = {"sha", "schema_sha256", "application_schema_sha256", "images", "backup_verified", "rollback_verified",
                "auto_deploy_enabled", "paused", "result", "health", "operation", "timestamp",
                "ok", "project", "recovery_required", "transaction"}
     write_json(output, {k: v for k, v in response.items() if k in allowed})
