@@ -7,7 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { encryptKey, bufToBytea } from "@/lib/crypto/aes_gcm";
 import { audit } from "@/lib/audit";
 import { readEmbeddingConfiguration } from "@/lib/ai/embeddings/configuration";
-import { embeddingConfigurationSchema, embeddingProfile } from "@/lib/ai/embeddings/profile";
+import { embeddingConfigurationSchema, embeddingProfile, EmbeddingConfigurationError } from "@/lib/ai/embeddings/profile";
 
 export const dynamic = "force-dynamic";
 const schema = embeddingConfigurationSchema.extend({
@@ -77,13 +77,17 @@ export async function PUT(req: Request): Promise<Response> {
     const result = current ? await admin.from("ai_embedding_configurations").update(row)
       .eq("organization_id", org).eq("version", current.version).select("version").maybeSingle()
       : await admin.from("ai_embedding_configurations").insert(row).select("version").single();
-    if (result.error || !result.data) throw new Error();
+    if (result.error?.code === "23505" || (!result.error && !result.data))
+      throw new EmbeddingConfigurationError("embedding_configuration_changed");
+    if (result.error) throw new Error();
     await audit({ organizationId: org, actorUserId: auth.user.id, action: "ai.embedding_configured", resourceType: "ai_embedding_configurations",
       resourceId: auth.org.orgId, requestId, metadata: { provider: profile.provider, model: profile.model, dimensions: profile.dimensions,
         fingerprint: profile.fingerprint, enabled, request_id: requestId } });
     return ok({ version: row.version, fingerprint: row.fingerprint, enabled }, { requestId });
-  } catch {
+  } catch (error) {
     if (createdId) await admin.from("ai_provider_credentials").update({ is_active: false }).eq("id", createdId).eq("organization_id", org);
+    if (error instanceof EmbeddingConfigurationError && error.code === "embedding_configuration_changed")
+      return fail("embedding_configuration_changed", "配置已更改，请刷新后重试。", 409, { requestId });
     return fail("embedding_configuration_rejected", "无法保存Embedding配置，请检查供应商与本组织凭据。", 422, { requestId });
   }
 }

@@ -1,12 +1,13 @@
 /** PostgreSQL invariants with SYNTHETIC vectors. Not a live embedding acceptance. */
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { GOV_ORG, GOV_VIEWER, seedGov, sql, countAs, indexExists } from "./gov-helpers";
+import { GOV_ORG, GOV_VIEWER, GOV_MANAGER, seedGov, sql, countAs, indexExists } from "./gov-helpers";
 const source = "e4120000-0000-4000-8000-000000000001";
 const versionA = "e4120000-0000-4000-8000-000000000002";
 const versionB = "e4120000-0000-4000-8000-000000000003";
 const keyA = "e4120000-0000-4000-8000-000000000004";
 const keyB = "e4120000-0000-4000-8000-000000000005";
 const otherOrg = "e4120000-0000-4000-8000-000000000006";
+const otherUser = "e4120000-0000-4000-8000-000000000007";
 const fpA = "embedding:v1:" + "a".repeat(64);
 const fpB = "embedding:v1:" + "b".repeat(64);
 const vector = (dims: number) => `(select array_fill(0.1::real,array[${dims}])::vector)`;
@@ -23,9 +24,11 @@ beforeEach(() => {
     delete from public.ai_embedding_configurations where organization_id in ('${GOV_ORG}','${otherOrg}');
     delete from public.ai_provider_credentials where id in ('${keyA}','${keyB}');
     insert into public.organizations(id,slug,legal_name,display_name) values('${otherOrg}','embedding-other-org','Synthetic','Synthetic') on conflict do nothing;
-    insert into public.ai_provider_credentials(id,organization_id,provider,label,api_key_encrypted,api_key_iv,api_key_tag,is_active,validated_at)
-    values('${keyA}','${GOV_ORG}','siliconflow','Synthetic Embedding A','\\x01','\\x02','\\x03',true,now()),
-          ('${keyB}','${GOV_ORG}','bailian','Synthetic Embedding B','\\x01','\\x02','\\x03',true,now());
+    insert into auth.users(id,email) values('${otherUser}','embedding-other@invariant.test') on conflict do nothing;
+    insert into public.user_organizations(user_id,organization_id,role,accepted_at) values('${otherUser}','${otherOrg}','manager',now()) on conflict do nothing;
+    insert into public.ai_provider_credentials(id,organization_id,provider,label,api_key_encrypted,api_key_iv,api_key_tag,api_key_last4,is_active,validated_at)
+    values('${keyA}','${GOV_ORG}','siliconflow','Synthetic Embedding A','\\x01','\\x02','\\x03','test',true,now()),
+          ('${keyB}','${GOV_ORG}','bailian','Synthetic Embedding B','\\x01','\\x02','\\x03','test',true,now());
     insert into public.ai_embedding_configurations(organization_id,provider,base_url,model,dimensions,model_revision,fingerprint,credential_id,enabled)
     values('${GOV_ORG}','siliconflow','https://api.siliconflow.cn/v1','BAAI/bge-m3',1024,'1','${fpA}','${keyA}',true);
     insert into public.ai_knowledge_sources(id,organization_id,agent_id,source_type,name,status,is_active)
@@ -53,6 +56,12 @@ describe("0412 — distinct embedding spaces, immutable provenance and atomic pu
   it("permits legitimate own-tenant reads and rejects a foreign org", () => {
     expect(countAs(GOV_VIEWER, `select count(*) from public.fn_search_knowledge_profile('${GOV_ORG}',array['${source}']::uuid[],${vector(1024)},'${fpA}',1024,5,-1)`)).toBe(1);
     expect(() => countAs(GOV_VIEWER, `select count(*) from public.fn_search_knowledge_profile('${otherOrg}',array['${source}']::uuid[],${vector(1024)},'${fpA}',1024,5,-1)`)).toThrow();
+  });
+  it("RLS permits own table rows and hides real foreign rows for both new tables", () => {
+    expect(countAs(GOV_VIEWER, `select count(*) from public.ai_embedding_chunks where organization_id='${GOV_ORG}'`)).toBe(1);
+    expect(countAs(otherUser, `select count(*) from public.ai_embedding_chunks where organization_id='${GOV_ORG}'`)).toBe(0);
+    expect(countAs(GOV_MANAGER, `select count(*) from public.ai_embedding_configurations where organization_id='${GOV_ORG}'`)).toBe(1);
+    expect(countAs(otherUser, `select count(*) from public.ai_embedding_configurations where organization_id='${GOV_ORG}'`)).toBe(0);
   });
   it("never ignores the caller's permitted source list", () => {
     expect(Number(sql(`select count(*) from public.fn_search_knowledge_profile('${GOV_ORG}',array[]::uuid[],${vector(1024)},'${fpA}',1024,5,-1)`))).toBe(0);

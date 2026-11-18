@@ -49,7 +49,7 @@ function deps(prompts: string[]) {
     embed: async () => ({
       embedding: Array(1536).fill(0.1),
       promptTokens: 0,
-      model: "text-embedding-3-small",
+      model: "openai/text-embedding-3-small",
     }),
     runtime: runtimeFromModelFactory(async (options) => {
       const text = JSON.stringify(options.prompt);
@@ -137,7 +137,7 @@ async function kb(
     [source, f.org, f.agent],
   );
   await pool.query(
-    "insert into ai_knowledge_versions(id,organization_id,agent_id,version_number,is_active) values($1,$2,$3,1,true)",
+      "insert into ai_knowledge_versions(id,organization_id,agent_id,version_number,is_active,embedding_model,embedding_dims) values($1,$2,$3,1,true,'openai/text-embedding-3-small',1536)",
     [version, f.org, f.agent],
   );
   await pool.query(

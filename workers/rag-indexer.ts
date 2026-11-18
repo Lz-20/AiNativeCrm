@@ -51,6 +51,8 @@ import {
 import type { EventRow, HandlerResult } from "@/lib/event-log/dispatcher";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { NuvemshopApiClient } from "@/lib/nuvemshop/api-client";
+import { writeKnowledgeChunk } from "@/lib/ai/embeddings/write-chunk";
+import type { Json } from "@/lib/database.types";
 
 const DEBOUNCE_TTL_SEC = 30;
 const LAG_WARN_MS = 5 * 60 * 1000;
@@ -383,7 +385,6 @@ export async function indexarFonte(
     `[rag-indexer] "${fonte.name}" → versão ${versionNumber} (${versionId}), ${pedacos.length} trecho(s)`,
   );
 
-  const admin = createAdminClient();
   let gravados = 0;
   // Trecho que não gravou NÃO pode seguir para a ativação: a versão fica
   // incompleta e a anterior — que funciona — é quem deve continuar no ar.
@@ -406,7 +407,7 @@ export async function indexarFonte(
       return { tipo: "erro", detalhe: `embedding falhou no trecho ${i}: ${detalhe}` };
     }
 
-    const { error: upErr } = await admin.from(chave.profile ? "ai_embedding_chunks" : "ai_chunks").upsert(
+    const { error: upErr } = await writeKnowledgeChunk(
       {
         organization_id: fonte.organization_id,
         kb_version_id: versionId,
@@ -416,14 +417,13 @@ export async function indexarFonte(
         content_hash: computeContentHash(p.content),
         token_count: estimateTokens(p.content),
         embedding: embedding as unknown as string,
-        ...(chave.profile ? { embedding_dims: chave.profile.dimensions, embedding_fingerprint: chave.profile.fingerprint } : {}),
-        metadata: p.metadata,
+        metadata: p.metadata as Json,
       },
       // A constraint que EXISTE é `ai_chunks_position_unique`
       // (knowledge_source_id, kb_version_id, position). Como cada indexação cria
       // uma versão nova, na prática nunca há conflito — o alvo certo é o que faz
       // o insert passar.
-      { onConflict: "knowledge_source_id,kb_version_id,position", ignoreDuplicates: true },
+      chave.profile,
     );
 
     if (upErr) {

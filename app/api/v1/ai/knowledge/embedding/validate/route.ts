@@ -38,7 +38,7 @@ export async function POST(req: Request): Promise<Response> {
       .select("id").maybeSingle();
     if (error || !data) throw new EmbeddingConfigurationError("embedding_credential_unavailable");
     await audit({ organizationId: org, actorUserId: auth.user.id, action: "ai.embedding_validated", resourceType: "ai_provider_credentials", resourceId: credentialId, requestId,
-      metadata: { purpose: "embedding_validation", provider: row.provider, model: row.model,
+      metadata: { validation_kind: "embedding_configuration", provider: row.provider, model: row.model,
         dimensions: row.dimensions, request_id: requestId } });
     return ok({ validated: true, dimensions: result.embedding.length, prompt_tokens: result.promptTokens }, { requestId });
   } catch (error) {

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-const m = vi.hoisted(() => ({ auth: vi.fn(), support: vi.fn(), read: vi.fn(), decrypt: vi.fn(), request: vi.fn(), audit: vi.fn(), encrypt: vi.fn(), from: vi.fn(), inserts: [] as Array<{ table: string; row: Record<string, unknown> }>, filters: [] as unknown[][], credential: null as unknown }));
+const m = vi.hoisted(() => ({ auth: vi.fn(), support: vi.fn(), read: vi.fn(), decrypt: vi.fn(), request: vi.fn(), audit: vi.fn(), encrypt: vi.fn(), from: vi.fn(), inserts: [] as Array<{ table: string; row: Record<string, unknown> }>, filters: [] as unknown[][], credential: null as unknown, configWriteLost: false }));
 vi.mock("@/lib/auth/require-role", () => ({ requireRole: m.auth }));
 vi.mock("@/lib/impersonate/support", () => ({ requireSupportWrite: m.support }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({ from: m.from }) }));
@@ -18,7 +18,7 @@ const profile = embeddingProfile(input);
 const row = { ...input, organization_id: org, fingerprint: profile.fingerprint, credential_id: credential, version };
 function request(body: unknown) { return new Request("http://localhost/api/v1/ai/knowledge/embedding", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); }
 beforeEach(() => {
-  vi.clearAllMocks(); m.inserts = []; m.filters = [];
+  vi.clearAllMocks(); m.inserts = []; m.filters = []; m.configWriteLost = false;
   m.auth.mockResolvedValue({ ok: true, org: { orgId: org, role: "admin" }, user: { id: org, idioma: "zh-CN" } });
   m.support.mockResolvedValue(null); m.read.mockResolvedValue(row);
   m.credential = { id: credential, provider: "siliconflow", is_active: true, validated_at: null, label: "Embedding" };
@@ -28,7 +28,7 @@ beforeEach(() => {
   m.from.mockImplementation((table: string) => {
     const builder = { select: () => builder, insert: (value: Record<string, unknown>) => { m.inserts.push({ table, row: value }); return builder; },
       update: () => builder, eq: (k: string, v: unknown) => { m.filters.push([table, k, v]); return builder; },
-      maybeSingle: async () => ({ data: m.credential, error: null }), single: async () => ({ data: { version }, error: null }),
+      maybeSingle: async () => ({ data: table === "ai_embedding_configurations" && m.configWriteLost ? null : m.credential, error: null }), single: async () => ({ data: { version }, error: null }),
       then: (resolve: (v: unknown) => unknown) => Promise.resolve({ data: null, error: null }).then(resolve) };
     return builder;
   });
@@ -62,6 +62,13 @@ describe("embedding configuration API is tenant/admin guarded and explicit about
   });
   it("rejects stale configuration before encryption", async () => {
     expect((await PUT(request(input))).status).toBe(409); expect(m.encrypt).not.toHaveBeenCalled();
+  });
+  it("reports a concurrent compare-and-swap loss as 409 without overwriting or calling providers", async () => {
+    m.configWriteLost = true;
+    const response = await PUT(request({ ...input, credential_id: credential, expected_version: version }));
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe("embedding_configuration_changed");
+    expect(m.request).not.toHaveBeenCalled(); expect(m.audit).not.toHaveBeenCalled();
   });
   it("rejects foreign/missing credentials before using a provider", async () => {
     m.credential = null;
