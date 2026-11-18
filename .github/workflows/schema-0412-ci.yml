@@ -39,12 +39,14 @@ jobs:
           git rev-parse HEAD > schema-0412-evidence/protocol-source-sha.txt
           git show '6c661538b8fc69cdcd49763ae8579cc188d5c487:supabase/migrations/20261118080000_0412_embedding_multiplos_provedores.sql' > schema-0412-evidence/migration-0412.sql
           echo '36111c299829b91cb588c8cce81cd8de5643eb0d04b42577984dec79d4c80926  schema-0412-evidence/migration-0412.sql' | sha256sum -c -
+          cmp schema-0412-evidence/migration-0412.sql tests/deployment/fixtures/migration0412.sql.txt
       - name: Controller, permission and deployment protocol regression
         run: |
           set -euo pipefail
           python3 -m py_compile deploy/staging/{engine,backup_verify,catalog_policy,schema_0412,migrate_0412}.py
           python3 -m unittest discover -s tests/deployment -p 'test_*.py' -v 2>&1 | tee schema-0412-evidence/python-tests.log
           python3 tests/staging_ci_test.py -v 2>&1 | tee schema-0412-evidence/deployment-protocol.log
+          sudo -n python3 tests/deployment/schema_0412_files_test.py -v 2>&1 | tee schema-0412-evidence/root-files.log
       - name: Real isolated PostgreSQL install, exact delta, failure and restore checks
         run: |
           set -euo pipefail
@@ -53,6 +55,54 @@ jobs:
         if: always()
         with:
           name: schema-0412-pg${{ matrix.pg }}-${{ env.SOURCE_SHA }}
+          path: schema-0412-evidence/
+          if-no-files-found: error
+          retention-days: 30
+
+  immutable-image-compatibility:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
+    concurrency:
+      group: schema-0412-images-${{ github.event.pull_request.number }}-pg${{ matrix.pg }}
+      cancel-in-progress: true
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ['15', '17']
+    env:
+      TEST_PG_MAJOR: ${{ matrix.pg }}
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify immutable native test source
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = aarch64
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          mkdir -p schema-0412-evidence
+          git rev-parse HEAD > schema-0412-evidence/protocol-source-sha.txt
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run old, new and rollback image groups against an expanded isolated database
+        run: |
+          set -euo pipefail
+          # Only synthetic keys and an internal network. No VPS credentials,
+          # registry push or source database connection exists in this job.
+          python3 tests/deployment/schema_0412_images.py | tee schema-0412-evidence/image-compatibility-output.log
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
+        with:
+          name: schema-0412-images-pg${{ matrix.pg }}-${{ env.SOURCE_SHA }}
           path: schema-0412-evidence/
           if-no-files-found: error
           retention-days: 30

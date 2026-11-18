@@ -377,6 +377,7 @@ class MigrationCoordinator:
             # proof, not copy the pre-migration proof or accept CI's synthetic result.
             context=self.rt.post_backup_and_receipt(approval,result,proof)
             verify_backup_proof(context['post_backup'])
+            need(self.rt.load_state()==state,'schema0412_state_changed_during_verification')
             self.rt.write_receipt(context)
             new=copy.deepcopy(state);new['schema_0412']=registration(context)
             self.rt.save_state(new)

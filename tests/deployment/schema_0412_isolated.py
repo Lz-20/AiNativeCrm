@@ -40,30 +40,37 @@ def command(args,data=None,timeout=180):
 
 
 class Database:
-    def __init__(self,major):
+    def __init__(self,major,compatibility=False):
         assert major in ('15','17')
         self.major=major;self.image='pgvector/pgvector:pg'+major
         self.name='ainativecrm-schema0412-'+uuid.uuid4().hex[:12];self.cid=None
+        self.network=self.name+'-private' if compatibility else None
     def start(self):
         command(['docker','pull',self.image])
         image=json.loads(command(['docker','image','inspect',self.image]))[0]
         assert image['Os']=='linux'
         self.image_id=image['Id'];self.image_arch=image['Architecture'];self.repo_digests=image.get('RepoDigests',[])
+        if self.network:command(['docker','network','create','--internal','--label','ainativecrm.schema0412='+self.name,self.network])
+        network=['--network',self.network,'--network-alias','db'] if self.network else ['--network','none']
         self.cid=command(['docker','run','-d','--pull=never','--name',self.name,'--label','ainativecrm.schema0412='+self.name,
-          '--network','none','--read-only','--memory','2g','--cpus','2','--pids-limit','256',
+          *network,'--read-only','--memory','2g','--cpus','2','--pids-limit','256',
           '--security-opt','no-new-privileges:true','--log-driver','none',
           '--tmpfs','/tmp:rw,size=1200m,mode=1777','--tmpfs','/var/lib/postgresql/data:rw,size=1m',
           '--entrypoint','sleep',self.image,'infinity']).decode().strip()
         self.check()
         self.exec(['mkdir','/tmp/schema0412-socket'])
-        self.exec(['initdb','-D','/tmp/schema0412-data','-U','postgres','--auth-local=trust','--auth-host=reject'])
-        self.exec(['pg_ctl','-D','/tmp/schema0412-data','-l','/tmp/postgres.log','-o',"-k /tmp/schema0412-socket -c listen_addresses='' -c wal_level=logical",'-w','start'])
+        self.exec(['initdb','-D','/tmp/schema0412-data','-U','postgres','--auth-local=trust','--auth-host='+('trust' if self.network else 'reject')])
+        if self.network:
+            self.exec(['sh','-c','cat >> /tmp/schema0412-data/pg_hba.conf'],b'host all all 0.0.0.0/0 trust\nhost all all ::/0 trust\n')
+        listen='*' if self.network else ''
+        self.exec(['pg_ctl','-D','/tmp/schema0412-data','-l','/tmp/postgres.log','-o',"-k /tmp/schema0412-socket -c listen_addresses='"+listen+"' -c wal_level=logical",'-w','start'])
         self.sql('CREATE DATABASE _supabase;')
     def check(self):
         row=json.loads(command(['docker','inspect',self.cid]))[0]
         assert row['Id']!=b.SOURCE_CONTAINER_ID and row['Name']=='/'+self.name
         assert row['Config']['Labels']['ainativecrm.schema0412']==self.name
-        assert row['HostConfig']['NetworkMode']=='none' and not row['HostConfig'].get('PortBindings')
+        assert row['HostConfig']['NetworkMode']==(self.network or 'none') and not row['HostConfig'].get('PortBindings')
+        if self.network:assert json.loads(command(['docker','network','inspect',self.network]))[0]['Internal'] is True
         assert row['HostConfig']['ReadonlyRootfs'] and all(x['Type']=='tmpfs' for x in row['Mounts'])
     def exec(self,args,data=None):
         return command(['docker','exec','-i','--user','postgres',self.cid,*args],data=data)
@@ -74,6 +81,7 @@ class Database:
         return json.loads(self.sql('BEGIN READ ONLY; SET LOCAL search_path=pg_catalog; '+query+'; ROLLBACK;',database))
     def close(self):
         if self.cid:self.check();command(['docker','rm','-f',self.cid]);self.cid=None
+        if self.network:command(['docker','network','rm',self.network])
 
 
 class Session:

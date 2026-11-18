@@ -112,6 +112,7 @@ class RootMigrationRuntime:
                 b.write_json(m.DIRECTORY/'transaction.json',{'format':1,'approval_sha256':m.digest(approval),
                   'files':{n:m.digest(v) for n,v in values.items()},'completed_at':when})
                 self.write_journal({'format':1,'transition':'embedding-0412','phase':'validated','approval_sha256':m.digest(approval)})
+                m.need(self.load_state()==m.read(m.DIRECTORY/'state-before.json'),'schema0412_state_changed_before_commit')
                 # Any exception before this statement leaves Snapshot's ROLLBACK
                 # active. A lost COMMIT acknowledgement leaves the durable journal.
                 session.query('COMMIT')
@@ -159,7 +160,7 @@ class RootMigrationRuntime:
         # restart again. A transaction that never committed cannot pass it.
         final=self.post_backup_and_receipt(approval,None,None)
         expected={**old,'schema_0412':m.registration(final)}
-        m.need(state in (old,expected),'schema0412_recovery_state_changed')
+        m.need(state in (old,expected) and self.load_state()==state,'schema0412_recovery_state_changed')
         self.write_receipt(final);self.save_state(expected)
         self.write_journal({'format':1,'transition':'embedding-0412','phase':'registered','approval_sha256':m.digest(approval)})
         self.audit({'phase':'schema0412_registration_recovered','receipt_sha256':final['receipt_sha256']})
@@ -169,6 +170,7 @@ class RootMigrationRuntime:
 def main():
     m.need(os.geteuid()==0 and sys.platform=='linux','schema0412_root_linux_required')
     m.need(sys.argv[1:] in (['--apply'],['--register']),'schema0412_fixed_operation_required')
+    os.environ.clear();os.environ.update(e.FIXED_ENV)
     runtime=RootMigrationRuntime()
     with existing_lock(e.STATE/'deployment.lock'):
         result=m.MigrationCoordinator(runtime).run() if sys.argv[1:]==['--apply'] else runtime.complete_registration()

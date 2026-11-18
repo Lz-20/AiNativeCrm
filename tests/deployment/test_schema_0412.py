@@ -49,7 +49,9 @@ class FixedSchemaTests(unittest.TestCase):
     def test_reviewed_approval_is_accepted_without_replacing_original_hashes(self):
         old=copy.deepcopy(self.state);m.validate_approval(self.approval,self.policy,self.state);self.assertEqual(old,self.state)
     def test_exact_sql_blob_is_bound_to_the_existing_reviewed_commit(self):
-        raw=subprocess.check_output(['git','show',m.REVIEWED_SOURCE+':'+m.MIGRATION],cwd=ROOT)
+        # Generic shallow CI has no unrelated PR object. The dedicated native
+        # gate compares this exact fixture to git show of REVIEWED_SOURCE.
+        raw=(ROOT/'tests/deployment/fixtures/migration0412.sql.txt').read_bytes()
         self.assertEqual(m.raw_hash(raw),m.MIGRATION_SHA256)
     def test_duplicate_keys_nan_unknown_and_wrong_transition_are_rejected(self):
         for raw in [b'{"x":1,"x":2}',b'{"x":NaN}',b'[]']:
@@ -99,7 +101,7 @@ class FakeMigrationRuntime:
     def load_state(self):return copy.deepcopy(self.state)
     def old_policy(self):return self.policy
     def approval(self):return self.plan
-    def migration_bytes(self):return subprocess.check_output(['git','show',m.REVIEWED_SOURCE+':'+m.MIGRATION],cwd=ROOT)
+    def migration_bytes(self):return (ROOT/'tests/deployment/fixtures/migration0412.sql.txt').read_bytes()
     def fresh_backup_before(self,state):self.calls.append('backup_before');return self.proof
     def start_journal(self,journal,state):self.journal=copy.deepcopy(journal);self.calls.append('journal')
     def write_journal(self,journal):self.journal=copy.deepcopy(journal)
