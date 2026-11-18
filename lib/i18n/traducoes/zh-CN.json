@@ -4517,6 +4517,8 @@
   "Não consegui guardar o arquivo.": "无法保存文件。",
   "Material cadastrado. Estou preparando — em instantes o agente já sabe.": "材料已登记。正在准备——片刻后 AI 智能体就能掌握。",
   "Material cadastrado. Ele fica esperando a chave da OpenAI para ser preparado.": "材料已登记。它正等待 OpenAI 密钥以便进行准备。",
+  "Material cadastrado. Ele aguarda a configuração de embedding para ser preparado.": "材料已登记，正在等待配置 Embedding 后建立索引。",
+  "Sem embedding configurado, o material fica guardado. Configure e valide o provedor de conhecimento antes de indexar.": "未配置 Embedding 时材料会保留。建立索引前，请先配置并验证知识库供应商。",
   "Ensinar algo novo ao agente": "教 AI 智能体新知识",
   "Nome do material": "材料名称",
   "Perguntas frequentes da loja": "店铺常见问题",

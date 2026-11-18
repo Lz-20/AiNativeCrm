@@ -1831,6 +1831,15 @@ jobs:
           # ver o comentário do passo de build: vazio NÃO desliga.
           SENTRY_DSN: "off"
 
+      - name: Preserve offline embedding browser proof
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always() && matrix.parte == 2
+        with:
+          name: embedding-offline-browser-proof
+          path: test-results/embedding-svc101-offline.png
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Preservar prova visual do alvo de toque em chinês
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always() && matrix.parte == 2
