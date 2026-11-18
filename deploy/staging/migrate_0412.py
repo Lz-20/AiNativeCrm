@@ -43,7 +43,7 @@ def normalized_data(session, expanded):
     # Adding a nullable column changes to_jsonb(row), even without changing data.
     # Only this exact new column is projected; every old column and row stays.
     if expanded:
-        m.need(session.json('SELECT NOT EXISTS(SELECT 1 FROM public.ai_knowledge_versions WHERE embedding_profile IS NOT NULL)'),
+        m.need(session.json('SELECT to_jsonb(NOT EXISTS(SELECT 1 FROM public.ai_knowledge_versions WHERE embedding_profile IS NOT NULL))'),
                'schema0412_new_profile_not_disabled')
         values['public.ai_knowledge_versions']=session.json("SELECT jsonb_build_object('count',count(*),'hash',md5(coalesce(string_agg(j,E'\\n' ORDER BY j),''))) FROM (SELECT (to_jsonb(t)-'embedding_profile')::text AS j FROM public.ai_knowledge_versions t) rows")
     return values
@@ -166,14 +166,47 @@ class RootMigrationRuntime:
         self.audit({'phase':'schema0412_registration_recovered','receipt_sha256':final['receipt_sha256']})
         return m.registration(final)
 
+    def retry_proven_rollback(self):
+        """Local explicit retry only after proving the original schema is live.
+
+        This never treats an unknown/committed transition as rolled back and
+        never deletes evidence or edits a business-release pending field.
+        """
+        m.secure(m.DIRECTORY,directory=True)
+        journal=m.read(m.JOURNAL);old=m.read(m.DIRECTORY/'state-before.json')
+        state=self.load_state()
+        m.need(journal.get('phase') in ('applying','validated','transaction_failed_or_unknown')
+               and state==old and not state.get('pending') and not state.get('schema_0412'),
+               'schema0412_retry_not_an_unregistered_rollback')
+        with b.Snapshot(b.SOURCE_CONTAINER_ID,'postgres') as session, b.Snapshot(b.SOURCE_CONTAINER_ID,'_supabase') as secondary:
+            b.source_identity(session)
+            m.need(session.json('SELECT to_jsonb(pg_try_advisory_xact_lock(412,20261118))'),'schema0412_migration_still_running')
+            current={'postgres':b.catalog_metadata(session),'_supabase':b.catalog_metadata(secondary)}
+            # Expanded or otherwise changed static catalogs cannot pass this gate.
+            cp.evaluate(current,session.json(cp.INVENTORY_SQL),self._policy,e.utcnow(),b.realtime_origin(cp))
+        archive=e.STATE/'schema-0412-attempts'
+        if not archive.exists():archive.mkdir(mode=0o700)
+        m.secure(archive,directory=True)
+        target=archive/os.urandom(16).hex()
+        m.need(not target.exists() and m.DIRECTORY.stat().st_dev==archive.stat().st_dev,'schema0412_retry_archive')
+        m.DIRECTORY.rename(target)
+        for parent in (e.STATE,archive):
+            fd=os.open(parent,os.O_RDONLY|os.O_DIRECTORY)
+            try:os.fsync(fd)
+            finally:os.close(fd)
+        self.audit({'phase':'schema0412_retry_after_proven_rollback','prior_evidence_directory':target.name})
+        return m.MigrationCoordinator(self).run()
+
 
 def main():
     m.need(os.geteuid()==0 and sys.platform=='linux','schema0412_root_linux_required')
-    m.need(sys.argv[1:] in (['--apply'],['--register']),'schema0412_fixed_operation_required')
+    m.need(sys.argv[1:] in (['--apply'],['--register'],['--retry-rolled-back']),'schema0412_fixed_operation_required')
     os.environ.clear();os.environ.update(e.FIXED_ENV)
     runtime=RootMigrationRuntime()
     with existing_lock(e.STATE/'deployment.lock'):
-        result=m.MigrationCoordinator(runtime).run() if sys.argv[1:]==['--apply'] else runtime.complete_registration()
+        if sys.argv[1:]==['--apply']:result=m.MigrationCoordinator(runtime).run()
+        elif sys.argv[1:]==['--register']:result=runtime.complete_registration()
+        else:result=runtime.retry_proven_rollback()
     print(json.dumps({'ok':True,**result},sort_keys=True))
 
 

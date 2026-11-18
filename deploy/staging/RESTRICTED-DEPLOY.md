@@ -83,7 +83,8 @@ exact added/removed Catalog rows. Original `approved_*` hashes and the original
 Realtime policy file remain unchanged. The derived policy is recalculated from
 the authenticated before/after catalogs, not supplied as a replacement hash.
 
-The future local root entry accepts only `--apply` or `--register`, runs only
+The future local root entry accepts only `--apply`, `--register` or
+`--retry-rolled-back`, runs only
 from its installed protected directory, uses the existing deployment/backup
 locks, and reads a separately installed `migration-0412.sql` whose bytes must
 match the reviewed Git object. It has no image-update operation. `--apply`
@@ -92,6 +93,10 @@ again after commit. A persistent journal and immutable receipts under the
 protected state directory block releases until registration completes.
 `--register` can complete a verified committed transition after interruption;
 it never re-executes SQL and refuses unexpected current/pending state.
+`--retry-rolled-back` independently proves the old static schema and cluster
+identity, refuses any still-held migration advisory lock, archives the entire
+failed evidence directory without deletion, then starts a new fixed attempt.
+It cannot be used for an expanded/committed schema or a changed release state.
 
 Registered state records a separate `schema_0412` receipt while old image
 declarations retain the old schema. Status reports the active database schema
