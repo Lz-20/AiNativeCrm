@@ -261,19 +261,27 @@ async function flow(f: Fixture) {
   });
   return pointer;
 }
-test.afterAll(async () => {
-  // Contextos do runner encerrados antes da remoção das fixtures.
-  for (const org of orgs) {
+test.afterEach(async ({}, info) => {
+  // Each case owns independent synthetic organizations. Keeping their pending
+  // jobs until afterAll pollutes the next case's global five-row queue window.
+  // Preserve failure diagnostics BEFORE scoped cleanup; never change outcomes.
+  const caseOrgs=orgs.splice(0),caseUsers=users.splice(0);
+  if(info.status!==info.expectedStatus && caseOrgs.length) {
+    const rows=await db.from('job_queue').select('id,organization_id,contact_id,kind,status,run_after,attempts,locked_by,locked_at')
+      .in('organization_id',caseOrgs).order('created_at',{ascending:true});
+    await info.attach('synthetic-case-queue-before-cleanup',{body:Buffer.from(JSON.stringify({rows:rows.data,error:rows.error?.code??null})),contentType:'application/json'});
+  }
+  for (const org of caseOrgs) {
     const r = await db.from("organizations").delete().eq("id", org);
     if (r.error) throw r.error;
   }
   // A fixture de suporte concede a si própria o papel; granted_by é RESTRICT.
   // Remover só grants dos usuários desta spec antes de excluir o Auth.
-  if (users.length) {
-    const grants = await db.from("platform_admins").delete().in("user_id", users);
+  if (caseUsers.length) {
+    const grants = await db.from("platform_admins").delete().in("user_id", caseUsers);
     if (grants.error) throw grants.error;
   }
-  for (const user of users) {
+  for (const user of caseUsers) {
     const r = await db.auth.admin.deleteUser(user);
     if (r.error) throw r.error;
   }
