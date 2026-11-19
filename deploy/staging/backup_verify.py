@@ -10,6 +10,7 @@ stay in the root-owned private backup directory. Stdout is a small attestation.
 import contextlib
 import datetime as dt
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -28,6 +29,7 @@ SOURCE_PROJECT = "ainativecrm-staging-supabase"
 SOURCE_ROOT = Path("/home/ubuntu/apps/AiNativeCrm-staging/infra/supabase")
 STATE_ROOT = Path("/var/lib/ainativecrm-staging-deploy")
 POLICY = Path("/etc/ainativecrm-staging-deploy/policy.json")
+CATALOG_POLICY = Path("/etc/ainativecrm-staging-deploy/catalog-policy.json")
 IMAGE = "supabase/postgres:17.6.1.136@sha256:f371b5f3f2ac0a05703f33d6e6134515fb2498cab708fb948a0aeb7481467c00"
 DATABASES = ("postgres", "_supabase")
 SNAPSHOT_BEGIN = """BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
@@ -108,6 +110,193 @@ def safe_policy():
     require(policy.get("db_container_id") == SOURCE_CONTAINER_ID, "policy_source_container")
     require(str(policy.get("system_identifier")) == SOURCE_SYSTEM_ID, "policy_source_cluster")
     return policy
+
+
+def catalog_extension():
+    """Legacy mode stays exact. Activation requires an independently reviewed root file."""
+    if not CATALOG_POLICY.exists() and not CATALOG_POLICY.is_symlink():
+        return None
+    for path in (CATALOG_POLICY, *CATALOG_POLICY.parents):
+        info = path.lstat()
+        require(not stat.S_ISLNK(info.st_mode) and info.st_uid == 0 and not info.st_mode & 0o022,
+                "catalog_policy_owner")
+    require(stat.S_ISREG(CATALOG_POLICY.stat().st_mode) and stat.S_IMODE(CATALOG_POLICY.stat().st_mode) == 0o600
+            and CATALOG_POLICY.stat().st_nlink == 1 and CATALOG_POLICY.stat().st_size <= 1024 * 1024,
+            "catalog_policy_file")
+    module_path = Path(__file__).resolve().with_name("catalog_policy.py")
+    for parent in module_path.parents:
+        parent_info = parent.lstat()
+        require(stat.S_ISDIR(parent_info.st_mode) and parent_info.st_uid == 0
+                and not parent_info.st_mode & 0o022, "catalog_module_parent_owner")
+    info = module_path.lstat()
+    require(module_path.resolve() == module_path and stat.S_ISREG(info.st_mode) and info.st_uid == 0
+            and not info.st_mode & 0o022 and info.st_nlink == 1, "catalog_module_owner")
+    spec = importlib.util.spec_from_file_location("reviewed_catalog_policy", module_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    try:
+        policy = module.parse_policy(CATALOG_POLICY.read_bytes())
+        module.validate_policy(policy, policy.get("legacy_catalog_sha256"))
+    except module.CatalogError as error:
+        raise VerificationError(error.code) from None
+    return module, policy
+
+
+def realtime_origin(module):
+    ids = run(["docker", "ps", "-q", "--no-trunc", "--filter", "label=com.docker.compose.project=" + SOURCE_PROJECT,
+               "--filter", "label=com.docker.compose.service=realtime"]).decode().split()
+    require(len(ids) == 1, "realtime_source_identity")
+    row = inspect_container(ids[0])
+    require(row["State"].get("Health", {}).get("Status") == "healthy", "realtime_source_health")
+    origin = {**module.SOURCE_CONTRACT, "image_id": row["Image"]}
+    require(origin == module.SOURCE_CONTRACT, "realtime_source_unreviewed")
+    return origin
+
+
+def previous_partition_names(module, policy):
+    """Use only the last successfully verified root proof; never a caller's name list."""
+    path = STATE_ROOT / "backup-attestation.json"
+    require(path.exists(), "prior_proof_missing")
+    info = path.lstat()
+    require(not path.is_symlink() and stat.S_ISREG(info.st_mode) and info.st_uid == 0
+            and stat.S_IMODE(info.st_mode) == 0o600 and info.st_nlink == 1
+            and info.st_size <= 1024 * 1024, "prior_proof_owner")
+    def decoded(raw):
+        try:
+            return module.parse_policy(raw)
+        except module.CatalogError:
+            raise VerificationError("prior_proof_json") from None
+    proof = decoded(path.read_bytes())
+    directory = Path(proof.get("backup_directory", ""))
+    require(directory.is_absolute() and directory.resolve() == directory
+            and directory.parent == STATE_ROOT / "backups", "prior_proof_directory")
+    private_dir(directory)
+    def evidence_file(name):
+        target = directory / name
+        info = target.lstat()
+        require(not target.is_symlink() and stat.S_ISREG(info.st_mode) and info.st_uid == 0
+                and stat.S_IMODE(info.st_mode) == 0o600 and info.st_nlink == 1
+                and info.st_size <= 16 * 1024 * 1024, "prior_evidence_owner_or_size")
+        return target
+    evidence_path = evidence_file("evidence.json")
+    require(file_hash(evidence_path) == proof.get("evidence_sha256"), "prior_proof_integrity")
+    prior_evidence = decoded(evidence_path.read_bytes())
+    require(proof.get("restore_verified") is True and proof.get("differences") == 0, "prior_restore_not_verified")
+    require(proof.get("source_system_identifier") == SOURCE_SYSTEM_ID and proof.get("source_database") == "postgres"
+            and prior_evidence.get("source_container_id") == SOURCE_CONTAINER_ID
+            and prior_evidence.get("source_database_writes") is False
+            and all(prior_evidence.get(k) is True for k in ("restore_verified", "restart_verified", "storage_verified"))
+            and prior_evidence.get("differences") == 0, "prior_proof_source_or_restore")
+    if proof.get("catalog_policy_sha256") != module.digest(policy):
+        # Bootstrap only from an authenticated, complete legacy restore proof.
+        require("catalog_policy_sha256" not in proof and "partition_validation" not in proof,
+                "prior_policy_changed")
+        catalog_path = evidence_file("catalog-source.json")
+        receipts = [entry for entry in prior_evidence.get("files", []) if entry.get("file") == "catalog-source.json"]
+        require(len(receipts) == 1 and receipts[0].get("sha256") == file_hash(catalog_path)
+                and receipts[0].get("bytes") == catalog_path.stat().st_size
+                and canonical_hash(decoded(catalog_path.read_bytes())) == proof.get("source_catalog_sha256"),
+                "prior_legacy_catalog_integrity")
+        return policy["initial_partitions"]
+    observation = proof.get("partition_validation")
+    require(isinstance(observation, dict) and observation == prior_evidence.get("partition_validation")
+            and observation.get("context") == "source"
+            and observation.get("policy_sha256") == module.digest(policy)
+            and observation.get("static_catalog_sha256") == policy["static_catalog_sha256"],
+            "prior_partition_proof_integrity")
+    names = observation.get("partition_names")
+    module.validate_names(names)
+    return names
+
+
+def validate_catalog_observation(extension, catalog, topology, origin, previous, observed_at, *, logical_restore=False):
+    module, policy = extension
+    try:
+        return module.evaluate(catalog, topology, policy, observed_at, origin, previous, logical_restore=logical_restore)
+    except module.CatalogError as error:
+        raise VerificationError(error.code) from None
+
+
+def read_approved_history(module, approved_directory, history_directory, approved_hash, evidence_sha256,
+                          history_evidence_sha256):
+    """Read-only offline migration aid; never called by SSH deploy/backup paths.
+
+    expected evidence_sha256 must come from the independently reviewed original
+    root attestation, not the directory being authenticated. The independently
+    reviewed replay receipt also pins history_evidence_sha256. The historical copy
+    must have been restored from that receipt-bound archive in isolation. This
+    reader performs no restore, DDL, baseline approval or file writes.
+    """
+    for directory, parent in ((approved_directory, STATE_ROOT / "backups"),
+                              (history_directory, STATE_ROOT / "catalog-history")):
+        require(isinstance(directory, Path) and directory.is_absolute() and directory.resolve() == directory
+                and directory.parent == parent, "history_fixed_directory")
+        private_dir(directory)
+    def raw_file(directory, name, *, limit=16 * 1024 * 1024):
+        path = directory / name
+        try: info = path.lstat()
+        except OSError: raise VerificationError("history_file_unavailable") from None
+        require(not path.is_symlink() and stat.S_ISREG(info.st_mode) and info.st_uid == 0
+                and stat.S_IMODE(info.st_mode) == 0o600 and info.st_nlink == 1 and info.st_size <= limit,
+                "history_file_metadata")
+        return path.read_bytes()
+    def decoded(raw):
+        try: return module.parse_policy(raw)
+        except module.CatalogError: raise VerificationError("history_json") from None
+    source_raw = raw_file(approved_directory, "evidence.json")
+    require(isinstance(evidence_sha256, str) and re.fullmatch(r"[a-f0-9]{64}", evidence_sha256)
+            and hashlib.sha256(source_raw).hexdigest() == evidence_sha256, "history_source_evidence_integrity")
+    source = decoded(source_raw)
+    def complete(evidence):
+        require(evidence.get("differences") == 0 and type(evidence.get("differences")) is int
+                and all(evidence.get(k) is True for k in ("restore_verified", "restart_verified", "storage_verified"))
+                and evidence.get("source_database_writes") is False
+                and evidence.get("source_container_id") == SOURCE_CONTAINER_ID
+                and evidence.get("source_system_identifier") == SOURCE_SYSTEM_ID,
+                "history_restore_or_source")
+    complete(source)
+    def receipted(directory, evidence, name):
+        entries = evidence.get("files")
+        require(isinstance(entries, list) and all(isinstance(row, dict) for row in entries), "history_file_inventory")
+        entries = [row for row in entries if row.get("file") == name]
+        require(len(entries) == 1, "history_file_receipt")
+        raw = raw_file(directory, name)
+        require(entries[0].get("sha256") == hashlib.sha256(raw).hexdigest()
+                and entries[0].get("bytes") == len(raw), "history_file_integrity")
+        return raw
+    original = decoded(receipted(approved_directory, source, "catalog-source.json"))
+    require(canonical_hash(original) == approved_hash and source.get("source_catalog_sha256") == approved_hash,
+            "history_original_catalog_anchor")
+    # Stream the archive hash; no database contents leave the private directory.
+    archives = [row for row in source["files"] if row.get("file") == "postgres.dump"]
+    archive = approved_directory / "postgres.dump"
+    info = archive.lstat()
+    require(not archive.is_symlink() and stat.S_ISREG(info.st_mode) and info.st_uid == 0
+            and stat.S_IMODE(info.st_mode) == 0o600 and info.st_nlink == 1, "history_archive_metadata")
+    require(len(archives) == 1 and archives[0].get("sha256") == file_hash(archive)
+            and archives[0].get("bytes") == info.st_size, "history_archive_integrity")
+    history_raw = raw_file(history_directory, "history-evidence.json")
+    require(isinstance(history_evidence_sha256, str) and re.fullmatch(r"[a-f0-9]{64}", history_evidence_sha256)
+            and hashlib.sha256(history_raw).hexdigest() == history_evidence_sha256,
+            "history_evidence_integrity")
+    history = decoded(history_raw)
+    complete(history)
+    require(type(history.get("format")) is int and history["format"] == 1
+            and history.get("context") == "isolated_approved_archive_restore"
+            and history.get("source_evidence_sha256") == evidence_sha256
+            and history.get("source_archive_sha256") == archives[0]["sha256"]
+            and history.get("source_catalog_sha256") == approved_hash
+            and history.get("network") == "none" and history.get("copy_removed") is True,
+            "history_restore_receipt_binding")
+    restored = decoded(receipted(history_directory, history, "catalog-restored.json"))
+    topology = decoded(receipted(history_directory, history, "partition-restored.json"))
+    result = {"format": 1, "context": "authenticated_logical_restore",
+              "approved_catalog_sha256": approved_hash, "source_evidence_sha256": evidence_sha256,
+              "source_archive_sha256": archives[0]["sha256"], "history_evidence_sha256": hashlib.sha256(history_raw).hexdigest(),
+              "catalog": restored, "topology": topology}
+    try: module.historical_partition_inventory(result, original, approved_hash)
+    except module.CatalogError as error: raise VerificationError(error.code) from None
+    return result
 
 
 def run(args, data=None, output=None, timeout=300):
@@ -639,6 +828,9 @@ def publish_attestation(value):
 
 def verify_backup():
     preflight()
+    extension = catalog_extension()
+    previous = previous_partition_names(*extension) if extension else None
+    origin = realtime_origin(extension[0]) if extension else None
     private_dir(STATE_ROOT)
     backups = STATE_ROOT / "backups"
     if not backups.exists():
@@ -652,11 +844,17 @@ def verify_backup():
     evidence = {"started_at": dt.datetime.now(dt.timezone.utc).isoformat(), "project": project,
                 "source_container_id": SOURCE_CONTAINER_ID, "source_system_identifier": SOURCE_SYSTEM_ID,
                 "source_database_writes": False, "restore_verified": False, "copy_removed": False}
+    observation = None
     try:
         with contextlib.ExitStack() as stack:
             sessions = {db: stack.enter_context(Snapshot(SOURCE_CONTAINER_ID, db, dest / (db + "-source.log"))) for db in DATABASES}
             evidence["source_identity"] = source_identity(sessions["postgres"])
             expected_catalog = source_catalog_metadata(sessions)
+            if extension:
+                topology = sessions["postgres"].json(extension[0].INVENTORY_SQL)
+                observation = validate_catalog_observation(extension, expected_catalog, topology, origin,
+                                                           previous, evidence["started_at"])
+                write_json(dest / "partition-source.json", topology)
             expected_data = {db: data_metadata(sessions[db]) for db in DATABASES}
             objects = capture_compensation(sessions["postgres"])
             write_json(dest / "catalog-source.json", expected_catalog)
@@ -670,6 +868,14 @@ def verify_backup():
         catalog, data = copy_fingerprints(cid, dest, "restore")
         require_equal(expected_catalog, catalog, "catalog")
         require_equal(expected_data, data, "data")
+        if extension:
+            with Snapshot(cid, "postgres", restored=True) as session:
+                restored_topology = session.json(extension[0].INVENTORY_SQL)
+            restored_observation = validate_catalog_observation(extension, catalog, restored_topology, origin,
+                                                                previous, evidence["started_at"], logical_restore=True)
+            require_equal(observation["static_catalog_sha256"], restored_observation["static_catalog_sha256"],
+                          "restore_static_catalog")
+            write_json(dest / "partition-restore.json", restored_topology)
         sequence_before = sequence_values(cid, dest, "restore")
         restore_exec(cid, ["tar", "-czf", "-", "-C", "/restore-storage", "."], output=dest / "storage-restored.tar.gz")
         require_equal(tar_manifest(dest / "storage-files.tar.gz"), tar_manifest(dest / "storage-restored.tar.gz"), "storage_restore")
@@ -678,11 +884,22 @@ def verify_backup():
         require_equal(expected_catalog, catalog, "restart_catalog")
         require_equal(expected_data, data, "restart_data")
         require_equal(sequence_before, sequence_values(cid, dest, "restart"), "restart_sequences")
+        if extension:
+            with Snapshot(cid, "postgres", restored=True) as session:
+                restarted_topology = session.json(extension[0].INVENTORY_SQL)
+            validate_catalog_observation(extension, catalog, restarted_topology, origin, previous, evidence["started_at"],
+                                         logical_restore=True)
+            write_json(dest / "partition-restart.json", restarted_topology)
         preflight()
         require_equal(expected_catalog, source_catalog_metadata(), "source_catalog_postflight")
+        if extension:
+            require_equal(origin, realtime_origin(extension[0]), "realtime_source_postflight")
         evidence.update({"restore_verified": True, "differences": 0,
                          "source_catalog_sha256": canonical_hash(expected_catalog),
                          "restart_verified": True, "storage_verified": True})
+        if observation:
+            evidence.update({"catalog_policy_sha256": observation["policy_sha256"],
+                             "partition_validation": observation})
         cleanup_copy(cid, project)
         evidence["copy_removed"] = True
         evidence["files"] = [{"file": p.name, "bytes": p.stat().st_size, "sha256": file_hash(p)}
@@ -693,6 +910,10 @@ def verify_backup():
                        "source_database": "postgres", "source_catalog_sha256": evidence["source_catalog_sha256"],
                        "restore_verified": True, "differences": 0, "backup_directory": str(dest),
                        "evidence_sha256": file_hash(dest / "evidence.json")}
+        if observation:
+            attestation.update({"catalog_policy_sha256": observation["policy_sha256"],
+                                "static_catalog_sha256": observation["static_catalog_sha256"],
+                                "partition_validation": observation})
         publish_attestation(attestation)
         return attestation
     except BaseException as error:
@@ -709,8 +930,19 @@ def main():
         require(sys.argv[1:] in ([], ["--identity-readonly"]), "unsupported_arguments")
         if sys.argv[1:]:
             preflight()
-            result = {"source_system_identifier": SOURCE_SYSTEM_ID,
-                      "source_catalog_sha256": canonical_hash(source_catalog_metadata())}
+            extension = catalog_extension()
+            with contextlib.ExitStack() as stack:
+                sessions = {db: stack.enter_context(Snapshot(SOURCE_CONTAINER_ID, db)) for db in DATABASES}
+                source_identity(sessions["postgres"])
+                catalog = source_catalog_metadata(sessions)
+                result = {"source_system_identifier": SOURCE_SYSTEM_ID,
+                          "source_catalog_sha256": canonical_hash(catalog)}
+                if extension:
+                    observed = validate_catalog_observation(extension, catalog,
+                        sessions["postgres"].json(extension[0].INVENTORY_SQL), realtime_origin(extension[0]),
+                        previous_partition_names(*extension), dt.datetime.now(dt.timezone.utc).isoformat())
+                    result.update({"catalog_policy_sha256": observed["policy_sha256"],
+                                   "static_catalog_sha256": observed["static_catalog_sha256"]})
         else:
             # Serialize backup attempts independently of the deploy lock.
             import fcntl

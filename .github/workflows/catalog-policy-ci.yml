@@ -1,0 +1,55 @@
+name: catalog-policy-ci
+
+# PR-only, native ARM64, synthetic data. No publication or VPS credentials.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  catalog-postgres17:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    concurrency:
+      group: catalog-policy-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    env:
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Verify native architecture and immutable source
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = aarch64
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          mkdir -p catalog-evidence
+          git rev-parse HEAD > catalog-evidence/source-sha.txt
+          sha256sum deploy/staging/{engine,backup_verify,catalog_policy}.py tests/deployment/catalog_isolated_test.py > catalog-evidence/source-files.sha256
+          python3 -m py_compile deploy/staging/{engine,backup_verify,catalog_policy}.py tests/deployment/catalog_isolated_test.py
+      - name: Controller, Catalog and permission regressions
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests/deployment -p 'test_*.py' -v 2>&1 | tee catalog-evidence/python-tests.log
+          python3 tests/staging_ci_test.py -v 2>&1 | tee catalog-evidence/release-protocol.log
+      - name: Pull the pinned ARM64 PostgreSQL 17 fixture
+        run: |
+          set -euo pipefail
+          docker pull --platform linux/arm64 supabase/postgres:17.6.1.136@sha256:f371b5f3f2ac0a05703f33d6e6134515fb2498cab708fb948a0aeb7481467c00
+      - name: Real PostgreSQL hostile DDL and complete dump restore invariants
+        run: |
+          set -euo pipefail
+          # Root only inside this ephemeral hosted runner, to exercise actual
+          # root-owned receipt files as well as the networkless Docker fixture.
+          sudo -n python3 tests/deployment/catalog_isolated_test.py | tee catalog-evidence/postgres17-isolation.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
+        with:
+          name: catalog-policy-${{ env.SOURCE_SHA }}
+          path: catalog-evidence/
+          if-no-files-found: error
+          retention-days: 30

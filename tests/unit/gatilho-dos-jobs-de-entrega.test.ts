@@ -64,6 +64,10 @@ const DIR = join(process.cwd(), ".github/workflows");
  * que desliga um job de entrega fica visível em code review.
  */
 const GATILHO_ESPERADO: Record<string, { condicao: string | null; efeito: string }> = {
+  "catalog-policy-ci.yml::catalog-postgres17": {
+    condicao: null,
+    efeito: "Exercita o controlador e DDL hostil em PostgreSQL 17 real no head imutável do PR, em ARM64 isolado; não publica nem acessa a VPS.",
+  },
   "arm64-pr.yml::images": {
     condicao: "github.repository == 'Lz-20/AiNativeCrm' && github.event.pull_request.head.repo.full_name == github.repository",
     efeito: "Mede o head imutável de PR deste fork em ARM64 sem publicar imagens nem acessar a VPS; falha ou pulo reprova arm64-ok.",

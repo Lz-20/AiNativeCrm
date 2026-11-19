@@ -1,0 +1,351 @@
+{
+  "source_note": "Sanitized vendor DDL metadata, no business rows or secrets; source Realtime v2.143.3, PostgreSQL17.6",
+  "partition_name": "messages_2026_11_16",
+  "rows": {
+    "relations": [
+      {
+        "acl": [
+          "dashboard_user=arwdDxtm/supabase_realtime_admin",
+          "postgres=a*r*wdDxtm/supabase_realtime_admin",
+          "supabase_realtime_admin=arwdDxtm/supabase_realtime_admin"
+        ],
+        "owner": "supabase_realtime_admin",
+        "relkind": "r",
+        "relname": "messages_2026_11_16",
+        "view_hash": null,
+        "reloptions": null,
+        "schema_name": "realtime",
+        "relreplident": "d",
+        "relrowsecurity": false,
+        "relforcerowsecurity": false
+      }
+    ],
+    "columns": [
+      {
+        "acl": [],
+        "attname": "binary_payload",
+        "type_name": "bytea",
+        "attnotnull": false,
+        "table_name": "messages_2026_11_16",
+        "attidentity": "",
+        "schema_name": "realtime",
+        "attgenerated": "",
+        "default_hash": "d41d8cd98f00b204e9800998ecf8427e",
+        "column_position": 9
+      },
+      {
+        "acl": [],
+        "attname": "event",
+        "type_name": "text",
+        "attnotnull": false,
+        "table_name": "messages_2026_11_16",
+        "attidentity": "",
+        "schema_name": "realtime",
+        "attgenerated": "",
+        "default_hash": "d41d8cd98f00b204e9800998ecf8427e",
+        "column_position": 4
+      },
+      {
+        "acl": [],
+        "attname": "extension",
+        "type_name": "text",
+        "attnotnull": true,
+        "table_name": "messages_2026_11_16",
+        "attidentity": "",
+        "schema_name": "realtime",
+        "attgenerated": "",
+        "default_hash": "d41d8cd98f00b204e9800998ecf8427e",
+        "column_position": 2
+      },
+      {
+        "acl": [],
+        "attname": "id",
+        "type_name": "uuid",
+        "attnotnull": true,
+        "table_name": "messages_2026_11_16",
+        "attidentity": "",
+        "schema_name": "realtime",
+        "attgenerated": "",
+        "default_hash": "f3b72bb359a50b640590970a2ab8e514",
+        "column_position": 8
+      },
+      {
+        "acl": [],
+        "attname": "inserted_at",
+        "type_name": "timestamp without time zone",
+        "attnotnull": true,
+        "table_name": "messages_2026_11_16",
+        "attidentity": "",
+        "schema_name": "realtime",
+        "attgenerated": "",
+        "default_hash": "931b5f553c00db3a5a0943e3659a2c97",
+        "column_position": 7
+      },
+      {
+        "acl": [],
+        "attname": "payload",
+        "type_name": "jsonb",
+        "attnotnull": false,
+        "table_name": "messages_2026_11_16",
+        "attidentity": "",
+        "schema_name": "realtime",
+        "attgenerated": "",
+        "default_hash": "d41d8cd98f00b204e9800998ecf8427e",
+        "column_position": 3
+      },
+      {
+        "acl": [],
+        "attname": "private",
+        "type_name": "boolean",
+        "attnotnull": false,
+        "table_name": "messages_2026_11_16",
+        "attidentity": "",
+        "schema_name": "realtime",
+        "attgenerated": "",
+        "default_hash": "68934a3e9455fa72420237eb05902327",
+        "column_position": 5
+      },
+      {
+        "acl": [],
+        "attname": "skip_broadcast",
+        "type_name": "boolean",
+        "attnotnull": true,
+        "table_name": "messages_2026_11_16",
+        "attidentity": "",
+        "schema_name": "realtime",
+        "attgenerated": "",
+        "default_hash": "68934a3e9455fa72420237eb05902327",
+        "column_position": 10
+      },
+      {
+        "acl": [],
+        "attname": "topic",
+        "type_name": "text",
+        "attnotnull": true,
+        "table_name": "messages_2026_11_16",
+        "attidentity": "",
+        "schema_name": "realtime",
+        "attgenerated": "",
+        "default_hash": "d41d8cd98f00b204e9800998ecf8427e",
+        "column_position": 1
+      },
+      {
+        "acl": [],
+        "attname": "updated_at",
+        "type_name": "timestamp without time zone",
+        "attnotnull": true,
+        "table_name": "messages_2026_11_16",
+        "attidentity": "",
+        "schema_name": "realtime",
+        "attgenerated": "",
+        "default_hash": "931b5f553c00db3a5a0943e3659a2c97",
+        "column_position": 6
+      }
+    ],
+    "indexes": [
+      {
+        "indislive": true,
+        "index_name": "messages_2026_11_16_pkey",
+        "indisready": true,
+        "indisvalid": true,
+        "table_name": "messages_2026_11_16",
+        "indisunique": true,
+        "schema_name": "realtime",
+        "indisprimary": true,
+        "definition_hash": "165e10bcd198fe00cdcea7c733ef19ac"
+      },
+      {
+        "indislive": true,
+        "index_name": "messages_2026_11_16_inserted_at_topic_idx",
+        "indisready": true,
+        "indisvalid": true,
+        "table_name": "messages_2026_11_16",
+        "indisunique": false,
+        "schema_name": "realtime",
+        "indisprimary": false,
+        "definition_hash": "6ab2b05084c3e0a88b3c0f1a9dd4bc68"
+      }
+    ],
+    "constraints": [
+      {
+        "conname": "messages_2026_11_16_pkey",
+        "contype": "p",
+        "table_name": "messages_2026_11_16",
+        "condeferred": false,
+        "schema_name": "realtime",
+        "convalidated": true,
+        "condeferrable": false,
+        "definition_hash": "bc42083684bb5b6aee49b4886309dd86070621077f208771db7dcd6c58d45da7"
+      },
+      {
+        "conname": "messages_payload_exclusive",
+        "contype": "c",
+        "table_name": "messages_2026_11_16",
+        "condeferred": false,
+        "schema_name": "realtime",
+        "convalidated": true,
+        "condeferrable": false,
+        "definition_hash": "b1357afaa7d3ea98aa1ad6a7ced3b6d8b7867fc68020978aa1f4e4ce0c557579"
+      }
+    ],
+    "types": [
+      {
+        "acl": [
+          "=U/supabase_realtime_admin",
+          "supabase_realtime_admin=U/supabase_realtime_admin"
+        ],
+        "enum": null,
+        "owner": "supabase_realtime_admin",
+        "typname": "_messages_2026_11_16",
+        "typtype": "b",
+        "base_type": null,
+        "typdefault": null,
+        "typnotnull": false,
+        "schema_name": "realtime",
+        "typcategory": "A"
+      },
+      {
+        "acl": [
+          "=U/supabase_realtime_admin",
+          "supabase_realtime_admin=U/supabase_realtime_admin"
+        ],
+        "enum": null,
+        "owner": "supabase_realtime_admin",
+        "typname": "messages_2026_11_16",
+        "typtype": "c",
+        "base_type": null,
+        "typdefault": null,
+        "typnotnull": false,
+        "schema_name": "realtime",
+        "typcategory": "C"
+      }
+    ],
+    "publication_tables": [
+      {
+        "pubname": "supabase_realtime_messages_publication",
+        "attnames": [
+          "topic",
+          "extension",
+          "payload",
+          "event",
+          "private",
+          "updated_at",
+          "inserted_at",
+          "id",
+          "binary_payload",
+          "skip_broadcast"
+        ],
+        "rowfilter": null,
+        "tablename": "messages_2026_11_16",
+        "schemaname": "realtime"
+      }
+    ]
+  },
+  "topology": {
+    "parent": {
+      "key": "RANGE (inserted_at)",
+      "oid": 17826,
+      "kind": "p",
+      "name": "messages",
+      "schema": "realtime"
+    },
+    "partitions": [
+      {
+        "oid": 26675,
+        "kind": "r",
+        "name": "messages_2026_11_16",
+        "bound": "FOR VALUES FROM ('2026-11-16 00:00:00') TO ('2026-11-17 00:00:00')",
+        "rules": [],
+        "types": [
+          {
+            "kind": "b",
+            "name": "_messages_2026_11_16",
+            "schema": "realtime",
+            "array_type": null,
+            "array_schema": null,
+            "element_type": "messages_2026_11_16",
+            "relation_oid": 0,
+            "element_schema": "realtime"
+          },
+          {
+            "kind": "c",
+            "name": "messages_2026_11_16",
+            "schema": "realtime",
+            "array_type": "_messages_2026_11_16",
+            "array_schema": "realtime",
+            "element_type": null,
+            "relation_oid": 26675,
+            "element_schema": null
+          }
+        ],
+        "schema": "realtime",
+        "indexes": [
+          {
+            "kind": "i",
+            "name": "messages_2026_11_16_inserted_at_topic_idx",
+            "owner": "supabase_realtime_admin",
+            "schema": "realtime",
+            "options": null,
+            "partition": true,
+            "definition": "CREATE INDEX messages_2026_11_16_inserted_at_topic_idx ON realtime.messages_2026_11_16 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE))",
+            "tablespace": 0,
+            "parent_indexes": [
+              {
+                "name": "messages_inserted_at_topic_index",
+                "schema": "realtime"
+              }
+            ]
+          },
+          {
+            "kind": "i",
+            "name": "messages_2026_11_16_pkey",
+            "owner": "supabase_realtime_admin",
+            "schema": "realtime",
+            "options": null,
+            "partition": true,
+            "definition": "CREATE UNIQUE INDEX messages_2026_11_16_pkey ON realtime.messages_2026_11_16 USING btree (id, inserted_at)",
+            "tablespace": 0,
+            "parent_indexes": [
+              {
+                "name": "messages_pkey",
+                "schema": "realtime"
+              }
+            ]
+          }
+        ],
+        "options": null,
+        "has_rules": false,
+        "partition": true,
+        "tablespace": 0,
+        "constraints": [
+          {
+            "name": "messages_2026_11_16_pkey",
+            "islocal": false,
+            "noinherit": false,
+            "definition": "PRIMARY KEY (id, inserted_at)",
+            "parent_name": "messages_pkey",
+            "inherit_count": 1
+          },
+          {
+            "name": "messages_payload_exclusive",
+            "islocal": false,
+            "noinherit": false,
+            "definition": "CHECK (payload IS NULL OR binary_payload IS NULL)",
+            "parent_name": null,
+            "inherit_count": 1
+          }
+        ],
+        "parent_oids": [
+          17826
+        ],
+        "persistence": "p",
+        "access_method": "heap",
+        "security_labels": 0,
+        "extra_dependents": [],
+        "replica_identity": "d",
+        "direct_publications": [],
+        "extension_memberships": []
+      }
+    ]
+  }
+}
