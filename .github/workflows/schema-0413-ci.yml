@@ -2,8 +2,6 @@ name: schema-0413-ci
 
 # Fixed controller protocol only. No VPS credentials, deploy or package push.
 on:
-  push:
-    branches: [fix/schema-0413-transition]
   pull_request:
     branches: [main, fix/embedding-0412-migration-protocol]
 
