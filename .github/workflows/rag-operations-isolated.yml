@@ -30,6 +30,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: ./.github/actions/preparar-node
+        timeout-minutes: 5
       - name: Waiting events, wire admission and integer budget contract (offline only)
         run: >-
           pnpm exec vitest run lib/ai/embeddings lib/ai/embed.test.ts

@@ -62,7 +62,7 @@ describe("0413 additive upgrade from the deployed 0412 schema", () => {
         "select array_agg(c.oid order by c.oid)::text from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname in ('public','auth','storage')",
       );
       const securitySnapshot = () =>
-        query(`select jsonb_build_object(
+        query(`select encode(sha256(convert_to(jsonb_build_object(
         'relations',(select jsonb_agg(jsonb_build_array(oid,relname,relkind,relowner,relacl,relrowsecurity,relforcerowsecurity) order by oid) from pg_class where oid=any('${oldRelations}'::oid[])),
         'columns',(select jsonb_agg(jsonb_build_array(attrelid,attnum,attname,atttypid,atttypmod,attnotnull,attidentity,attgenerated) order by attrelid,attnum) from pg_attribute where attrelid=any('${oldRelations}'::oid[]) and attnum>0),
         'constraints',(select jsonb_agg(jsonb_build_array(conrelid,conname,pg_get_constraintdef(oid)) order by conrelid,conname) from pg_constraint where conrelid=any('${oldRelations}'::oid[])),
@@ -71,7 +71,7 @@ describe("0413 additive upgrade from the deployed 0412 schema", () => {
         'functions',(select jsonb_agg(jsonb_build_array(p.oid,p.proowner,p.proacl,pg_get_functiondef(p.oid)) order by p.oid) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname in ('public','auth','storage') and p.prokind in ('f','p')),
         'roles',(select jsonb_agg(jsonb_build_array(rolname,rolsuper,rolinherit,rolcreaterole,rolcreatedb,rolcanlogin,rolreplication,rolbypassrls) order by rolname) from pg_roles),
         'memberships',(select jsonb_agg(to_jsonb(m) order by roleid,member) from pg_auth_members m),
-        'default_acl',(select jsonb_agg(to_jsonb(a) order by oid) from pg_default_acl a))`);
+        'default_acl',(select jsonb_agg(to_jsonb(a) order by oid) from pg_default_acl a))::text,'UTF8')),'hex')`);
       const oldSecurity = securitySnapshot();
       const indexes = query(
         "select jsonb_agg(jsonb_build_array(indexname,indexname::regclass::oid) order by indexname) from pg_indexes where schemaname='public' and indexname in ('ai_chunks_embedding_ivfflat_idx','embedding_chunks_1024_cosine','embedding_chunks_1536_cosine')",
