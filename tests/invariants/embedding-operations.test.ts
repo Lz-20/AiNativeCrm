@@ -501,5 +501,31 @@ describe("0413 durable single-source operation + hard reservations", () => {
         `select count(*) from public.ai_embedding_requests where operation_id='${validationId}' and status='succeeded'`,
       ),
     ).toBe("1");
+    // A NEW config/credential validation must not reuse the previous operation's
+    // vector and incorrectly certify a rotated key without checking it.
+    sql(
+      `update public.ai_embedding_configurations set version=gen_random_uuid() where organization_id='${GOV_ORG}'`,
+    );
+    configVersion = (
+      await pool.query(
+        "select version from public.ai_embedding_configurations where organization_id=$1",
+        [GOV_ORG],
+      )
+    ).rows[0].version;
+    const rotatedValidation = await approve({ kind: "validation" }, [input]);
+    await requestEmbedding(profile, "synthetic-rotated-key", input, fetcher, {
+      organizationId: GOV_ORG,
+      kind: "validation",
+      sourceIds: [source],
+      operationId: rotatedValidation,
+    });
+    expect(calls).toBe(6);
+    await requestEmbedding(profile, "synthetic-rotated-key", input, fetcher, {
+      organizationId: GOV_ORG,
+      kind: "validation",
+      sourceIds: [source],
+      operationId: rotatedValidation,
+    });
+    expect(calls).toBe(6); // same-operation replay remains idempotent
   });
 });

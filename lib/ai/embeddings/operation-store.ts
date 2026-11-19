@@ -487,7 +487,7 @@ export async function executeAuthorizedEmbedding(
       `select r.id,r.response_embedding::text as embedding,r.actual_tokens,r.reserved_tokens
       from public.ai_embedding_requests r join public.ai_embedding_operations old on old.id=r.operation_id and old.organization_id=r.organization_id
       where r.organization_id=$1 and old.knowledge_source_id=$2 and old.content_hash=$3 and old.fingerprint=$4
-        and old.kind=$5 and r.input_hash=$6 and r.status='succeeded' and r.response_embedding is not null order by r.finished_at desc limit 1`,
+        and old.kind=$5 and $5 <> 'validation' and r.input_hash=$6 and r.status='succeeded' and r.response_embedding is not null order by r.finished_at desc limit 1`,
       [op.organization_id, op.knowledge_source_id, op.content_hash, op.fingerprint, op.kind, hash],
     );
     const reusable = previous.rows[0];
