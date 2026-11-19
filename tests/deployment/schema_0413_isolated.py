@@ -25,14 +25,26 @@ def init(db):
 
 
 catalog=old.catalog;snapshot=old.snapshot
-def reference_policy(before):return old.reference_policy(before)
+def reference_policy(before,major):
+    policy=old.reference_policy(before)
+    if major=='15':
+        # A declared synthetic PG15 reference, NOT a production policy update:
+        # GRANT ALL cannot include PG17's MAINTAIN privilege on PG15. Retain
+        # every other role/right/grant-option byte from the reviewed template.
+        for row in policy['template_catalog']['relations']:
+            acl=[]
+            for grant in row['acl']:
+                role,rest=grant.split('=',1);rights,grantor=rest.split('/',1)
+                acl.append(role+'='+rights.replace('m','')+'/'+grantor)
+            row['acl']=acl
+    return policy
 
 
 def test_database(major,dest):
     db=Database(major);passed=[]
     try:
         db.start();init(db)
-        before,topology,data_before=snapshot(db);policy=reference_policy(before)
+        before,topology,data_before=snapshot(db);policy=reference_policy(before,major)
         cp.evaluate(before,topology,policy,old.NOW,cp.SOURCE_CONTRACT)
         state,prior=fixtures.state_and_prior(before,policy)
         migration=git_blob(m.REVIEWED_SOURCE,m.MIGRATION)
@@ -53,7 +65,7 @@ def test_database(major,dest):
         passed.append('isolated_sql_idempotent_no_historical_events_or_vectors_rewritten')
         effective={**policy,'static_catalog_sha256':m.digest(z)}
         day=dt.datetime.fromisoformat(old.NOW).date();name='messages_'+day.strftime('%Y_%m_%d')
-        db.sql(f"CREATE TABLE realtime.{name} PARTITION OF realtime.messages FOR VALUES FROM ('{day}') TO ('{day+dt.timedelta(days=1)}'); ALTER TABLE realtime.{name} OWNER TO supabase_realtime_admin; SET ROLE supabase_realtime_admin; GRANT ALL ON realtime.{name} TO dashboard_user,postgres; GRANT INSERT,SELECT ON realtime.{name} TO postgres WITH GRANT OPTION; RESET ROLE;")
+        db.sql(f"SET ROLE supabase_realtime_admin; CREATE TABLE realtime.{name} PARTITION OF realtime.messages FOR VALUES FROM ('{day}') TO ('{day+dt.timedelta(days=1)}'); GRANT ALL ON realtime.{name} TO dashboard_user,postgres; GRANT INSERT,SELECT ON realtime.{name} TO postgres WITH GRANT OPTION; RESET ROLE;")
         cp.evaluate(catalog(db),db.json(cp.INVENTORY_SQL),effective,old.NOW,cp.SOURCE_CONTRACT,[])
         db.sql(f'GRANT SELECT ON realtime.{name} TO anon;')
         try:cp.evaluate(catalog(db),db.json(cp.INVENTORY_SQL),effective,old.NOW,cp.SOURCE_CONTRACT,[])
@@ -121,6 +133,7 @@ def test_database(major,dest):
         return {'postgres_major':major,'architecture':db.image_arch,'source_schema':m.FROM_SCHEMA,'target_schema':m.TO_SCHEMA,
           'reviewed_source':m.REVIEWED_SOURCE,'migration_sha256':m.MIGRATION_SHA256,'delta_sha256':m.digest(plan['delta']),
           'class_counts':{k:{d:len(v[d]) for d in ('added','removed')} for k,v in plan['delta'].items()},
+          'fixture_policy_note':'PG15 has no MAINTAIN privilege; only its synthetic reference excludes m. Production Realtime policy/code untouched.',
           'passed':passed,'failures':0,'source_staging_accessed':False,'model_requests':0}
     finally:db.close()
 

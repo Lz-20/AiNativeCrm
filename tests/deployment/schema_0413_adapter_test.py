@@ -29,7 +29,7 @@ def run():
     for name in ('deployment.lock','backup.lock'):(state_dir/name).touch(mode=0o600)
     try:
         db.start();db.sql('CREATE ROLE supabase_admin SUPERUSER LOGIN;');pg.init(db)
-        before,topology,_=pg.snapshot(db);policy=pg.reference_policy(before)
+        before,topology,_=pg.snapshot(db);policy=pg.reference_policy(before,major)
         state,prior=pg.fixtures.state_and_prior(before,policy)
         sql=pg.git_blob(rt.m.REVIEWED_SOURCE,rt.m.MIGRATION)
         db.sql('CREATE DATABASE schema0412_restore TEMPLATE postgres;');db.sql(sql.decode(),'schema0412_restore')
