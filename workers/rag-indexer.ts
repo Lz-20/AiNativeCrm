@@ -53,7 +53,7 @@ import { NuvemshopApiClient } from "@/lib/nuvemshop/api-client";
 import { writeKnowledgeChunk } from "@/lib/ai/embeddings/write-chunk";
 import type { Json } from "@/lib/database.types";
 import { acquireIndexOperation, ensureIndexVersion, releaseIndexLease, writeIndexChunk, completeIndexOperation } from "@/lib/ai/embeddings/operation-store";
-import { EmbeddingWaitingError, isEmbeddingWaiting, hashText, inputManifest } from "@/lib/ai/embeddings/operation-contract";
+import { EmbeddingWaitingError, isEmbeddingWaiting, hashText, inputManifest, tenantStoragePath } from "@/lib/ai/embeddings/operation-contract";
 import { sourceRevision } from "@/lib/ai/embeddings/source-revision";
 import { getRequestPool } from "@/lib/agent-engine/db/request-pool";
 
@@ -217,7 +217,7 @@ async function materialDeDocumento(fonte: FonteRow): Promise<{pedacos:Pedaco[];c
   };
   const blobPath = meta.blob_path;
   if (!blobPath) throw new ErroDeExtracao("a fonte não aponta para nenhum arquivo");
-  if(!blobPath.startsWith(fonte.organization_id+'/') || blobPath.split('/').some(segment=>segment==='..' || segment==='.' || segment.includes('\\')))
+  if(!tenantStoragePath(fonte.organization_id,blobPath))
     throw new ErroDeExtracao('embedding_source_storage_tenant_mismatch');
 
   const { texto, extensao } = await extrairTextoDoArquivo(blobPath, meta.ext);

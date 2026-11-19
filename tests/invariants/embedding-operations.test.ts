@@ -215,6 +215,15 @@ describe("0413 durable single-source operation + hard reservations", () => {
     await expect(claim()).rejects.toThrow("embedding_authorization_required");
     expect(calls).toBe(0);
   });
+  it("an index approval cannot attach an arbitrary existing knowledge version", async () => {
+    await expect(
+      approve({ knowledge_version_id: "e4130000-0000-4000-8000-000000000099" }),
+    ).rejects.toThrow("embedding_authorization_required");
+    expect(calls).toBe(0);
+    expect(
+      sql(`select count(*) from public.ai_embedding_operations where organization_id='${GOV_ORG}'`),
+    ).toBe("0");
+  });
   it("disabled or unvalidated credentials never reach the receiver", async () => {
     await approve();
     sql(

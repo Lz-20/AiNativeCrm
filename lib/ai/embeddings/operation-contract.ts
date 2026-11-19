@@ -77,8 +77,26 @@ export const authorizeOperationSchema = z
     currency: z.string().regex(/^[A-Z]{3}$/),
     confirm_cost: z.literal(true),
   })
-  .strict();
+  .strict()
+  .refine(
+    (value) =>
+      value.kind === "query"
+        ? value.knowledge_version_id !== null
+        : value.knowledge_version_id === null,
+    { message: "Only a query grant may bind an existing knowledge version" },
+  );
 export type AuthorizeOperation = z.infer<typeof authorizeOperationSchema>;
+export function tenantStoragePath(org: string, path: string): boolean {
+  if (!path.startsWith(org + "/")) return false;
+  try {
+    return path.split("/").every((part) => {
+      const decoded = decodeURIComponent(part);
+      return decoded !== "." && decoded !== ".." && !/[\\/\x00%]/.test(decoded);
+    });
+  } catch {
+    return false;
+  }
+}
 export class EmbeddingWaitingError extends EmbeddingConfigurationError {}
 const WAITING = new Set([
   "embedding_disabled",

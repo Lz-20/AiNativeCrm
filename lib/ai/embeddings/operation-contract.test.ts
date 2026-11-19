@@ -6,9 +6,23 @@ import {
   isEmbeddingWaiting,
   authorizeOperationSchema,
   priceReviewSchema,
+  tenantStoragePath,
 } from "./operation-contract";
 import { EmbeddingConfigurationError } from "./profile";
 describe("operation contract defaults to refusal", () => {
+  it.each([
+    "other/file.md",
+    "org/../other.md",
+    "org/%2e%2e/other.md",
+    "org/%252e%252e/other.md",
+    "org/%2fother.md",
+    "org/%5cother.md",
+  ])("rejects cross-tenant or encoded traversal path %s", (path) => {
+    expect(tenantStoragePath("org", path)).toBe(false);
+  });
+  it("accepts only normal same-tenant storage paths", () => {
+    expect(tenantStoragePath("org", "org/synthetic.md")).toBe(true);
+  });
   it("has an ordered versioned chunk identity, unaffected by text in metadata", () => {
     const m = inputManifest(["SVC-101", "合成"]);
     expect(m.manifest[1]).toEqual({ position: 1, hash: hashText("合成"), bytes: 6 });

@@ -111,7 +111,8 @@ export async function POST(req: Request) {
           provider: profile.provider,
           model: profile.model,
           dimensions: profile.dimensions,
-          knowledge_version_id: source.rows[0].active_kb_version_id ?? null,
+          knowledge_version_id:
+            input.kind === "query" ? (source.rows[0].active_kb_version_id ?? null) : null,
           authorization_installed: false,
         },
         { requestId },

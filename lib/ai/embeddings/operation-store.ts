@@ -198,6 +198,8 @@ export async function authorizeOperation(
   input: AuthorizeOperation,
   pool = getRequestPool(),
 ): Promise<string> {
+  if (input.kind === "query" ? !input.knowledge_version_id : input.knowledge_version_id !== null)
+    return wait("embedding_authorization_required");
   if (
     input.manifest.some((m, i) => m.position !== i) ||
     hashText(JSON.stringify([1, input.manifest])) !== input.manifest_hash ||
@@ -358,7 +360,20 @@ export async function ensureIndexVersion(
     const op = await lockOperation(c, lease.organizationId, lease.operationId);
     checkLease(op, lease);
     await guard(c, op);
-    if (op.knowledge_version_id) return op.knowledge_version_id;
+    if (op.knowledge_version_id) {
+      const version = await c.query(
+        "select id from public.ai_knowledge_versions where organization_id=$1 and knowledge_source_id=$2 and id=$3 and status='building' and embedding_model=$4 and embedding_dims=$5",
+        [
+          op.organization_id,
+          op.knowledge_source_id,
+          op.knowledge_version_id,
+          profile.fingerprint,
+          profile.dimensions,
+        ],
+      );
+      if (!version.rows.length) return wait("embedding_operation_blocked");
+      return op.knowledge_version_id;
+    }
     const { rows } = await c.query<{ id: string }>(
       `insert into public.ai_knowledge_versions(organization_id,knowledge_source_id,agent_id,version_number,description,status,is_active,embedding_model,embedding_dims,embedding_profile)
       select $1,$2,s.agent_id,coalesce((select max(version_number) from public.ai_knowledge_versions where organization_id=$1 and knowledge_source_id=$2),0)+1,$3,'building',false,$4,$5,$6 from public.ai_knowledge_sources s where s.organization_id=$1 and s.id=$2 returning id`,
