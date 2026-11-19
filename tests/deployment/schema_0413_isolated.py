@@ -54,13 +54,18 @@ def test_database(major,dest):
         else:raise AssertionError('0413_failure_did_not_roll_back')
         rolled,_,rolled_data=snapshot(db);assert rolled==before and rolled_data==data_before
         passed.append('fixed_sql_transaction_failure_preserves_all_0412_catalog_and_data')
-        db.sql('BEGIN; '+migration.decode()+'; COMMIT;')
+        # A caller-side failure after COMMIT does not prove the DDL rolled back.
+        # Read the real structure; do not blindly repeat the migration.
+        try:db.sql('BEGIN; '+migration.decode()+'; COMMIT; SELECT 1/0;')
+        except RuntimeError:pass
+        else:raise AssertionError('post_commit_fault_not_observed')
         after,topology_after,data_after=snapshot(db)
         plan=fixtures.approval(before,after,topology,prior,state);m.validate_approval(plan,prior,state)
         a=m.static_projection(before,topology,policy,old.NOW,cp.SOURCE_CONTRACT)
         z=m.static_projection(after,topology_after,policy,old.NOW,cp.SOURCE_CONTRACT)
         m.verify_change(a,z,plan);m.verify_data(data_before,data_after)
         passed.append('actual_fixed_0413_delta_and_old_data_preservation')
+        passed.append('post_commit_error_does_not_mean_rollback_real_expanded_catalog_observed')
         db.sql(migration.decode());assert catalog(db)==after
         passed.append('isolated_sql_idempotent_no_historical_events_or_vectors_rewritten')
         effective={**policy,'static_catalog_sha256':m.digest(z)}

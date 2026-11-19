@@ -145,6 +145,10 @@ class FakeRuntime:
 
 
 class Coordinator0413Tests(unittest.TestCase):
+    def test_tampered_installed_sql_bytes_rejected_before_any_backup_or_sql(self):
+        rt=FakeRuntime();rt.migration_bytes=lambda:b'SELECT 1'
+        with self.assertRaises(ValueError):m.MigrationCoordinator(rt).run()
+        self.assertEqual(rt.calls,[])
     def test_appends_registration_without_changing_0412_or_business(self):
         rt=FakeRuntime();before=rt.load_state();m.MigrationCoordinator(rt).run()
         self.assertEqual({k:v for k,v in rt.state.items() if k!='schema_0413'},before)

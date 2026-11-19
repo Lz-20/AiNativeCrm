@@ -160,6 +160,7 @@ def evidence_inventory(values):
 
 
 def catalog_context(approval,values,prior,cp,when):
+    need(timestamp(when)>=timestamp(approval['approved_at']),'schema0413_receipt_time')
     need(digest(values['state-before.json'])==approval['old_state_sha256']
          and values['state-before.json'].get('current')==approval['old_release']
          and not values['state-before.json'].get('pending') and not values['state-before.json'].get('schema_0413')
@@ -193,7 +194,7 @@ def validate_receipt(approval,receipt,values,prior,state,cp):
     need(values['backup-before.json']['source_catalog_sha256']==digest(values['catalog-before.json']), 'schema0413_before_backup_anchor')
     data=values['data-proof.json']
     need(set(data)=={'format','before_sha256','after_sha256','unchanged','new_tables_empty'}
-         and data['format']==1 and data['unchanged'] is True and data['new_tables_empty'] is True
+         and type(data['format']) is int and data['format']==1 and data['unchanged'] is True and data['new_tables_empty'] is True
          and all(type(data[k]) is str and legacy.HASH.fullmatch(data[k]) for k in ('before_sha256','after_sha256')),
          'schema0413_data_proof')
     return {'approval':approval,'receipt':receipt,'prior':prior,'original_policy':prior['original_policy'],
@@ -221,7 +222,7 @@ def read_context(state,original_policy,cp,*,allow_pending=False):
     if allow_pending and not (DIRECTORY/'receipt.json').exists():
         transaction=read(DIRECTORY/'transaction.json');names=EVIDENCE_FILES-{'backup-after.json'}
         values={name:read(DIRECTORY/name) for name in names}
-        need(set(transaction)=={'format','approval_sha256','files','completed_at'} and transaction['format']==1
+        need(set(transaction)=={'format','approval_sha256','files','completed_at'} and type(transaction['format']) is int and transaction['format']==1
              and transaction['approval_sha256']==digest(approval) and transaction['files']=={n:digest(v) for n,v in values.items()},
              'schema0413_pending_evidence')
         authenticate_backup(values['backup-before.json'])
