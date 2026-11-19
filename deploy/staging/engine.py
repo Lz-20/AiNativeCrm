@@ -288,7 +288,9 @@ class RootRuntime:
 
     def schema_context(self,state):
         marker=STATE/'schema-0412'/'journal.json'
-        if not marker.exists() and not marker.is_symlink() and not state.get('schema_0412'):
+        marker413=STATE/'schema-0413'/'journal.json'
+        has413=marker413.exists() or marker413.is_symlink() or bool(state.get('schema_0413'))
+        if not marker.exists() and not marker.is_symlink() and not state.get('schema_0412') and not has413:
             self._schema_transition=None;return None
         for name in ('schema_0412.py','catalog_policy.py'):secure_path(INSTALL/name)
         def load(name):
@@ -300,6 +302,10 @@ class RootRuntime:
             policy=cp.parse_policy((CONFIG/'catalog-policy.json').read_bytes())
             cp.validate_policy(policy,state['approved_catalog_sha256'])
             context=self._schema_module.read_context(state,policy,cp)
+            if has413:
+                secure_path(INSTALL/'schema_0413.py')
+                self._schema_module=load('schema_0413')
+                context=self._schema_module.read_context(state,policy,cp)
         except (self._schema_module.TransitionError,cp.CatalogError) as error:raise Failure(error.code) from None
         self._schema_transition=context;return context
 
@@ -308,6 +314,8 @@ class RootRuntime:
         in_use=False
         if release.get('schema_sha256')==self._schema_module.FROM_SCHEMA:
             query="SELECT EXISTS(SELECT 1 FROM public.ai_embedding_configurations WHERE enabled) OR EXISTS(SELECT 1 FROM public.ai_knowledge_sources s JOIN public.ai_knowledge_versions v ON v.id=s.active_kb_version_id AND v.organization_id=s.organization_id WHERE v.embedding_profile IS NOT NULL);"
+            if context.get('database_schema')=='37974846957f850f051b020f23493586ce49631aacc66a04bbdbb93b8f708fa3':
+                query="SELECT EXISTS(SELECT 1 FROM public.ai_embedding_configurations WHERE enabled) OR EXISTS(SELECT 1 FROM public.ai_embedding_operations WHERE status='running') OR EXISTS(SELECT 1 FROM public.ai_embedding_requests WHERE status IN ('reserved','unknown'));"
             result=self.docker('exec',self.policy['db_container_id'],'psql','-X','-qAt','--no-password',
                 '-v','ON_ERROR_STOP=1','-U','supabase_admin','-d','postgres','-c',
                 'BEGIN READ ONLY; SET LOCAL statement_timeout=\'10s\'; '+query+' ROLLBACK;')

@@ -64,6 +64,18 @@ const DIR = join(process.cwd(), ".github/workflows");
  * que desliga um job de entrega fica visível em code review.
  */
 const GATILHO_ESPERADO: Record<string, { condicao: string | null; efeito: string }> = {
+  "schema-0413-ci.yml::postgres-protocol": {
+    condicao: null,
+    efeito: "Valida cadeia fixa 0412/0413, arquivos root e SQL real em PG15/17 sem executar DDL na VPS nem instalar aprovações.",
+  },
+  "schema-0413-ci.yml::fixed-business-regression": {
+    condicao: null,
+    efeito: "Reexecuta orçamento, fencing e idempotência do SHA fixo d7f7123 em PostgreSQL real, sem provedores ou chaves pagas.",
+  },
+  "schema-0413-ci.yml::immutable-image-compatibility": {
+    condicao: null,
+    efeito: "Prova os três serviços ea26ee4/d7f7123/ea26ee4 no Schema expandido isolado, sem publicar imagens ou atualizar a instalação.",
+  },
   "schema-0412-ci.yml::postgres-protocol": {
     condicao: null,
     efeito: "Sem este job a conversão fixa 0412 não mede SQL real, permissões, diferenças exatas de Catalog nem recuperação nos PostgreSQL 15/17 isolados.",
