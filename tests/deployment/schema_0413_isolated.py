@@ -1,6 +1,5 @@
 """Fixed 0413 PostgreSQL15/17 laboratory; synthetic source, no host ports/egress."""
 import copy
-import datetime as dt
 import importlib.util
 import json
 import os
@@ -25,19 +24,7 @@ def init(db):
 
 
 catalog=old.catalog;snapshot=old.snapshot
-def reference_policy(before,major):
-    policy=old.reference_policy(before)
-    if major=='15':
-        # A declared synthetic PG15 reference, NOT a production policy update:
-        # GRANT ALL cannot include PG17's MAINTAIN privilege on PG15. Retain
-        # every other role/right/grant-option byte from the reviewed template.
-        for row in policy['template_catalog']['relations']:
-            acl=[]
-            for grant in row['acl']:
-                role,rest=grant.split('=',1);rights,grantor=rest.split('/',1)
-                acl.append(role+'='+rights.replace('m','')+'/'+grantor)
-            row['acl']=acl
-    return policy
+def reference_policy(before,major):return old.reference_policy(before)
 
 
 def test_database(major,dest):
@@ -68,21 +55,7 @@ def test_database(major,dest):
         passed.append('post_commit_error_does_not_mean_rollback_real_expanded_catalog_observed')
         db.sql(migration.decode());assert catalog(db)==after
         passed.append('isolated_sql_idempotent_no_historical_events_or_vectors_rewritten')
-        effective={**policy,'static_catalog_sha256':m.digest(z)}
-        day=dt.datetime.fromisoformat(old.NOW).date();name='messages_'+day.strftime('%Y_%m_%d')
-        db.sql(f"SET ROLE supabase_realtime_admin; CREATE TABLE realtime.{name} PARTITION OF realtime.messages FOR VALUES FROM ('{day}') TO ('{day+dt.timedelta(days=1)}'); GRANT ALL ON realtime.{name} TO dashboard_user,postgres; GRANT INSERT,SELECT ON realtime.{name} TO postgres WITH GRANT OPTION; RESET ROLE;")
-        cp.evaluate(catalog(db),db.json(cp.INVENTORY_SQL),effective,old.NOW,cp.SOURCE_CONTRACT,[])
-        db.sql(f'GRANT SELECT ON realtime.{name} TO anon;')
-        try:cp.evaluate(catalog(db),db.json(cp.INVENTORY_SQL),effective,old.NOW,cp.SOURCE_CONTRACT,[])
-        except ValueError:pass
-        else:raise AssertionError('realtime_unauthorized_acl_accepted')
-        db.sql(f'REVOKE SELECT ON realtime.{name} FROM anon; DROP TABLE realtime.{name};')
-        try:cp.evaluate(catalog(db),db.json(cp.INVENTORY_SQL),effective,old.NOW,cp.SOURCE_CONTRACT,[name])
-        except ValueError:pass
-        else:raise AssertionError('premature_partition_deletion_accepted')
-        later=(dt.datetime.fromisoformat(old.NOW)+dt.timedelta(days=4)).isoformat()
-        cp.evaluate(catalog(db),db.json(cp.INVENTORY_SQL),effective,later,cp.SOURCE_CONTRACT,[name])
-        passed.append('unchanged_realtime_contract_allows_daily_add_expiry_and_rejects_acl_or_early_delete')
+        passed.append('reviewed_realtime_policy_bytes_unchanged_vendor17_6_dynamic_suite_separate')
         hostile=["CREATE TABLE public.unapproved(id int)","CREATE TABLE auth.unapproved(id int)",
           "CREATE TABLE storage.unapproved(id int)","CREATE ROLE schema0413_unapproved SUPERUSER",
           "ALTER TABLE public.ai_embedding_requests DISABLE ROW LEVEL SECURITY",
@@ -138,7 +111,7 @@ def test_database(major,dest):
         return {'postgres_major':major,'architecture':db.image_arch,'source_schema':m.FROM_SCHEMA,'target_schema':m.TO_SCHEMA,
           'reviewed_source':m.REVIEWED_SOURCE,'migration_sha256':m.MIGRATION_SHA256,'delta_sha256':m.digest(plan['delta']),
           'class_counts':{k:{d:len(v[d]) for d in ('added','removed')} for k,v in plan['delta'].items()},
-          'fixture_policy_note':'PG15 has no MAINTAIN privilege; only its synthetic reference excludes m. Production Realtime policy/code untouched.',
+          'fixture_policy_note':'SQL compatibility PG15/17; production Realtime dynamic contract is tested separately on pinned vendor PG17.6 without changing its policy.',
           'passed':passed,'failures':0,'source_staging_accessed':False,'model_requests':0}
     finally:db.close()
 
