@@ -14,8 +14,11 @@ import {
 import { gatewayHeaders, type ModelId } from "@/lib/ai/gateway";
 import { requestEmbedding } from "@/lib/agent-engine/edge/llm/embedding-provider";
 import { assertEmbedding, EmbeddingConfigurationError, type EmbeddingProfile } from "./embeddings/profile";
+import { embeddingProfile } from "./embeddings/profile";
+import { executeAuthorizedEmbedding, type EmbeddingAccess } from "./embeddings/operation-store";
 
 export interface EmbedOptions {
+  access?: EmbeddingAccess;
   organizationId: string;
   /**
    * Qual ponto de IA está chamando. Muda apenas de QUAL binding a chave sai —
@@ -65,7 +68,9 @@ export async function embedText(
       throw new EmbeddingConfigurationError("embedding_tenant_mismatch");
     if (opts.model && opts.model !== chave.profile.model)
       throw new EmbeddingConfigurationError("embedding_profile_override_forbidden");
-    const result = await requestEmbedding(chave.profile, chave.apiKey ?? "", content);
+    const access = opts.access;
+    if (!access || access.organizationId !== opts.organizationId) throw new EmbeddingConfigurationError("embedding_authorization_required");
+    const result = await requestEmbedding(chave.profile, chave.apiKey ?? "", content, undefined, access);
     return { ...result, model: chave.profile.fingerprint, profile: chave.profile };
   }
 
@@ -87,6 +92,13 @@ export async function embedText(
         ...(chave.baseUrl ? { baseURL: chave.baseUrl } : {}),
       }).textEmbeddingModel(modelId.replace(/^openai\//, ""));
 
+  // Legacy storage remains readable. Legacy credentials cannot bypass admission;
+  // the organization must explicitly approve the corresponding OpenAI space.
+  if (!opts.access || opts.access.organizationId !== opts.organizationId)
+    throw new EmbeddingConfigurationError("embedding_authorization_required");
+  const legacyProfile = embeddingProfile({ provider: "openai", base_url: "https://api.openai.com/v1",
+    model: "text-embedding-3-small", dimensions: 1536, model_revision: "1", enabled: true });
+  return executeAuthorizedEmbedding(legacyProfile, content, opts.access, async () => {
   let result;
   try { result = await embed({
     model: resolvido,
@@ -94,6 +106,7 @@ export async function embedText(
     headers: chave.viaGateway
       ? gatewayHeaders({ organizationId: opts.organizationId })
       : undefined,
+    maxRetries: 0,
   }); } catch { throw new EmbeddingConfigurationError("embedding_upstream_failed"); }
 
   // Dimensão asserida a cada chamada: divergir de modelo quebra o recall em
@@ -113,5 +126,6 @@ export async function embedText(
     (result.usage as { tokens?: number; promptTokens?: number } | undefined)?.promptTokens ??
     0;
 
-  return { embedding: result.embedding, promptTokens, model: modelId };
+  return { embedding: result.embedding, promptTokens };
+  }).then(result => ({ ...result, model: modelId }));
 }

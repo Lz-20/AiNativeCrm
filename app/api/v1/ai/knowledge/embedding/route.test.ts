@@ -7,6 +7,7 @@ vi.mock("@/lib/audit", () => ({ audit: m.audit }));
 vi.mock("@/lib/crypto/aes_gcm", () => ({ encryptKey: m.encrypt, bufToBytea: (v: Buffer) => "\\x" + v.toString("hex") }));
 vi.mock("@/lib/ai/embeddings/configuration", () => ({ readEmbeddingConfiguration: m.read, credentialForEmbedding: m.decrypt }));
 vi.mock("@/lib/agent-engine/edge/llm/embedding-provider", () => ({ requestEmbedding: m.request }));
+vi.mock("@/lib/agent-engine/db/request-pool",()=>({getRequestPool:()=>({query:async()=>({rows:[{knowledge_source_id:'00000000-0000-4000-8000-000000000004'}]})})}));
 import { GET, PUT } from "./route";
 import { POST } from "./validate/route";
 import { embeddingProfile, EmbeddingConfigurationError } from "@/lib/ai/embeddings/profile";
@@ -84,7 +85,7 @@ describe("embedding configuration API is tenant/admin guarded and explicit about
     expect((await POST(request({}))).status).toBe(400); expect(m.decrypt).not.toHaveBeenCalled();
   });
   it("validation is one explicit request and never enables indexing", async () => {
-    const response = await POST(request({ confirm_cost: true }));
+    const response = await POST(request({ confirm_cost: true, operation_id: version }));
     expect(response.status).toBe(200); expect(m.request).toHaveBeenCalledTimes(1);
     expect(m.decrypt).toHaveBeenCalledWith(org, row, true);
     expect(await response.json()).toMatchObject({ data: { validated: true, dimensions: 1024, prompt_tokens: 5 } });
@@ -92,11 +93,11 @@ describe("embedding configuration API is tenant/admin guarded and explicit about
   });
   it("enabled configurations cannot be accidentally validated with a paid side effect", async () => {
     m.read.mockResolvedValue({ ...row, enabled: true });
-    expect((await POST(request({ confirm_cost: true }))).status).toBe(409); expect(m.request).not.toHaveBeenCalled();
+    expect((await POST(request({ confirm_cost: true, operation_id: version }))).status).toBe(409); expect(m.request).not.toHaveBeenCalled();
   });
   it("upstream error response contains only a fixed category and safe HTTP status", async () => {
     m.request.mockRejectedValue(new EmbeddingConfigurationError("embedding_upstream_rejected", 401));
-    const response = await POST(request({ confirm_cost: true }));
+    const response = await POST(request({ confirm_cost: true, operation_id: version }));
     expect(response.status).toBe(422);
     expect(await response.json()).toMatchObject({ error: { code: "embedding_validation_failed", details: { reason: "embedding_upstream_rejected", http_status: 401 } } });
   });

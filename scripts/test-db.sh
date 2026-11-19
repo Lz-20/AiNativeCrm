@@ -310,6 +310,8 @@ create table if not exists storage.objects (
   name text,
   owner uuid,
   metadata jsonb,
+  version text,
+  updated_at timestamptz not null default now(),
   created_at timestamptz not null default now()
 );
 

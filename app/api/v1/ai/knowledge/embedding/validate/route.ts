@@ -10,7 +10,7 @@ import { EmbeddingConfigurationError } from "@/lib/ai/embeddings/profile";
 import { requestEmbedding } from "@/lib/agent-engine/edge/llm/embedding-provider";
 
 export const dynamic = "force-dynamic";
-const validationSchema = z.object({ confirm_cost: z.literal(true) }).strict();
+const validationSchema = z.object({ confirm_cost: z.literal(true), operation_id: z.uuid() }).strict();
 /** Explicit small embedding call. No GET validation and no automatic indexing. */
 export async function POST(req: Request): Promise<Response> {
   const support = await requireSupportWrite(); if (support) return support;
@@ -20,7 +20,8 @@ export async function POST(req: Request): Promise<Response> {
   const credentialAuth = await requireRole("admin", { requestId, resource: "ai_credentials" });
   if (!credentialAuth.ok) return credentialAuth.response;
   if (credentialAuth.org.orgId !== auth.org.orgId) return fail("forbidden", "组织权限不一致。", 403, { requestId });
-  try { if (!validationSchema.safeParse(await req.json()).success) throw new Error(); }
+  let input: z.infer<typeof validationSchema>;
+  try { input = validationSchema.parse(await req.json()); }
   catch { return fail("invalid_request", "请明确确认本次Embedding验证可能计费。", 400, { requestId }); }
   const org = auth.org.orgId;
   try {
@@ -29,7 +30,12 @@ export async function POST(req: Request): Promise<Response> {
     const credentialId = row.credential_id;
     if (!credentialId) throw new EmbeddingConfigurationError("embedding_credential_unavailable");
     const resolved = await credentialForEmbedding(org, row, true);
-    const result = await requestEmbedding(resolved.profile, resolved.apiKey, "Embedding configuration validation");
+    const { getRequestPool } = await import("@/lib/agent-engine/db/request-pool");
+    const operation = await getRequestPool().query<{ knowledge_source_id: string }>(
+      "select knowledge_source_id from public.ai_embedding_operations where organization_id=$1 and id=$2 and kind='validation'",[org,input.operation_id]);
+    if (!operation.rows[0]) throw new EmbeddingConfigurationError("embedding_authorization_required");
+    const result = await requestEmbedding(resolved.profile, resolved.apiKey, "Embedding configuration validation", undefined,
+      {organizationId:org,kind:"validation",operationId:input.operation_id,sourceIds:[operation.rows[0].knowledge_source_id]});
     const current = await readEmbeddingConfiguration(org);
     if (current?.version !== row.version) throw new EmbeddingConfigurationError("embedding_configuration_changed");
     const { data, error } = await createAdminClient().from("ai_provider_credentials")

@@ -31,6 +31,9 @@
 export const AUDIT_ACTIONS = [
   "ai.embedding_configured",
   "ai.embedding_validated",
+  "ai.embedding_operation_review_price",
+  "ai.embedding_operation_authorize",
+  "ai.embedding_operation_revoke",
   "auth.login_success",
   "auth.login_failed",
   /** Teto de tentativas barrou antes de chegar ao provedor (issue #64). */

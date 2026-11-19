@@ -4,6 +4,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { resolverChaveDeEmbedding } from "@/lib/ai/embeddings/chave";
 import { acquireDebounce } from "@/lib/ai/rag/debounce";
 import { extrairTextoDoArquivo } from "@/lib/ai/rag/ingest/documento";
+import { embeddingProfile } from "@/lib/ai/embeddings/profile";
+vi.mock("@/lib/agent-engine/db/request-pool",()=>({getRequestPool:()=>({})}));
+vi.mock("@/lib/ai/embeddings/source-revision",()=>({sourceRevision:async()=> 'synthetic-revision'}));
 
 /**
  * A CAUSA DE UMA FALHA DE EXTRAÇÃO CHEGA A QUEM LÊ O CARTÃO E A CENTRAL.
@@ -111,7 +114,7 @@ beforeEach(async () => {
   } as never);
 
   vi.mocked(acquireDebounce).mockResolvedValue(true as never);
-  vi.mocked(resolverChaveDeEmbedding).mockResolvedValue({ origem: "org" } as never);
+  vi.mocked(resolverChaveDeEmbedding).mockResolvedValue({ origem: "org",profile:embeddingProfile({provider:'siliconflow',base_url:'https://api.siliconflow.cn/v1',model:'BAAI/bge-m3',dimensions:1024,model_revision:'1',enabled:true}) } as never);
 
   const { ErroDeExtracao } = await import("@/lib/ai/rag/ingest/documento");
   vi.mocked(extrairTextoDoArquivo).mockRejectedValue(

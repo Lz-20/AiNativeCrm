@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { requestEmbedding } from "./embedding-provider";
+import { requestEmbedding as governedRequest } from "./embedding-provider";
+import type { EmbeddingProfile } from "@/lib/ai/embeddings/profile";
+vi.mock("@/lib/ai/embeddings/operation-store",()=>({
+  // This file isolates wire validation. Real admission/concurrency is exercised
+  // against PG15/17 + a counting HTTP receiver in embedding-operations.test.ts.
+  executeAuthorizedEmbedding:(_p:unknown,_i:unknown,_a:unknown,send:()=>Promise<unknown>)=>send(),
+}));
+const requestEmbedding=(p:EmbeddingProfile,key:string,text:string,fetcher?:typeof fetch)=>governedRequest(p,key,text,fetcher,
+  {organizationId:'synthetic-org',kind:'query',sourceIds:['synthetic-source']});
 import { embeddingProfile } from "@/lib/ai/embeddings/profile";
 const sf = embeddingProfile({ provider: "siliconflow", base_url: "https://api.siliconflow.cn/v1", model: "BAAI/bge-m3", dimensions: 1024, model_revision: "1", enabled: true });
 function response(overrides = {}) {

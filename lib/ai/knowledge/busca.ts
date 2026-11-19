@@ -76,6 +76,7 @@ export async function buscarConhecimento(
   const { embedding, profile, model } = await embed(p.pergunta, {
     organizationId: p.organizationId,
     ponto: "embedding_consultar",
+    access: { organizationId: p.organizationId, kind: "query", sourceIds: p.knowledgeSourceIds },
   });
 
   // Piso real da similaridade de cosseno (1 - distancia, distancia em [0,2]).

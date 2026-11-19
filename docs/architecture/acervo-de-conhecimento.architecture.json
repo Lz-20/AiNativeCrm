@@ -177,7 +177,9 @@
       "type": "table",
       "label": "last_index_status",
       "sublabel": "indexando | sem_credencial | success | failed — a tela deixa de mentir"
-    }
+    },
+    {"id": "operacoes", "lane": "humano", "col": 2, "type": "frontend", "label": "EmbeddingOperationsPanel", "sublabel": "prova de preço, identidade, aprovação/revogação e consumo"},
+    {"id": "ledger", "lane": "motor", "col": 3, "type": "backend", "label": "operation-store / 0413", "sublabel": "lease persistente, fencing, reserva antes de HTTP e resposta reutilizável"}
   ],
   "edges": [
     { "id": "e1", "from": "acervo", "to": "criar", "label": "a pessoa cola o conteúdo" },
@@ -205,7 +207,12 @@
     { "id": "e23", "from": "busca", "to": "resposta", "label": "os trechos entram no turno" },
     { "id": "e24", "from": "resposta", "to": "telemetria", "label": "registra acertos e melhor nota" },
     { "id": "e25", "from": "chunks", "to": "trechos", "label": "a pessoa audita o que ele leu" },
-    { "id": "e26", "from": "fonte", "to": "escolha", "label": "o acervo alimenta o seletor" }
+    { "id": "e26", "from": "fonte", "to": "escolha", "label": "o acervo alimenta o seletor" },
+    {"from": "acervo", "to": "operacoes", "label": "administrador revê"},
+    {"from": "operacoes", "to": "ledger", "label": "aprova identidade e limite"},
+    {"from": "indexador", "to": "ledger", "label": "admite cada chunk"},
+    {"from": "ledger", "to": "chunks", "label": "todos confirmados: ativa atomicamente"},
+    {"from": "ledger", "to": "operacoes", "label": "consumo e incerteza exigem revisão"}
   ],
   "cards": [
     {

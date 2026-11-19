@@ -294,7 +294,7 @@ export async function drainEventLog(
                   .map((e) => `${e.consumer_key}: ${e.detail ?? "error"}`)
                   .join("; "),
               }
-            : {}),
+            : retry.detail ? { last_error: `${retry.consumer_key}: ${retry.detail}` } : {}),
         })
         .eq("id", row.id);
       summary.retried += 1;

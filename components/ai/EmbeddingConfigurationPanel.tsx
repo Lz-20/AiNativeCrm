@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { showApiError } from "@/components/feedback/ApiErrorToast";
 import type { EmbeddingConfigurationRow } from "@/lib/ai/embeddings/configuration";
+import { EmbeddingOperationsPanel } from "./EmbeddingOperationsPanel";
 
 const presets = {
   siliconflow: { base_url: "https://api.siliconflow.cn/v1", model: "BAAI/bge-m3", dimensions: 1024 },
@@ -47,6 +48,7 @@ function EmbeddingConfigurationForm({ state, canWrite, onSaved }: {
   const [apiKey, setApiKey] = useState("");
   const [enabled, setEnabled] = useState(initial?.enabled ?? false);
   const [busy, setBusy] = useState(false);
+  const [validationOperation,setValidationOperation]=useState('');
   const validationReady = initial && !initial.enabled && !apiKey &&
     provider === initial.provider && baseUrl === initial.base_url && model === initial.model &&
     dimensions === initial.dimensions && revision === initial.model_revision &&
@@ -68,7 +70,7 @@ function EmbeddingConfigurationForm({ state, canWrite, onSaved }: {
   async function validate() {
     setBusy(true);
     try {
-      await apiClient.post("/api/v1/ai/knowledge/embedding/validate", { confirm_cost: true }, { timeoutMs: 40000 });
+      await apiClient.post("/api/v1/ai/knowledge/embedding/validate", { confirm_cost: true, operation_id: validationOperation }, { timeoutMs: 40000 });
       await onSaved();
     } catch (error) { showApiError(error); } finally { setBusy(false); }
   }
@@ -92,8 +94,10 @@ function EmbeddingConfigurationForm({ state, canWrite, onSaved }: {
       <Label htmlFor="embedding-key">API Key（仅新建或更换时填写）</Label><Input id="embedding-key" type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
       <label><input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} /> 启用Embedding（等待中的索引任务可能开始计费）</label>
       <Button type="button" onClick={save} disabled={busy}>保存配置（不调用API）</Button>
-      <Button type="button" variant="outline" onClick={validate} disabled={busy || !validationReady}>验证Embedding（调用供应商，可能计费）</Button>
+      <Label htmlFor="embedding-validation-operation">接口验证操作授权UUID</Label><Input id="embedding-validation-operation" value={validationOperation} onChange={e=>setValidationOperation(e.target.value)} />
+      <Button type="button" variant="outline" onClick={validate} disabled={busy || !validationReady || !validationOperation}>验证Embedding（调用供应商，可能计费）</Button>
       <p className="text-sm">新凭据保存后保持禁用。先验证，再启用；历史向量保留，只有模型指纹一致的已发布索引参与检索。</p>
     </div>}
+    <EmbeddingOperationsPanel canWrite={canWrite} />
   </details>;
 }
