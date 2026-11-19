@@ -15,13 +15,17 @@
  * entra no header — nunca em log, erro ou contexto do modelo (regra dura 7).
  */
 
-import { allowlistedFetch, buildAllowlist } from '../egress';
+import { requestEmbedding } from './embedding-provider';
+import { embeddingProfile } from '@/lib/ai/embeddings/profile';
+import type { EmbeddingAccess } from '@/lib/ai/embeddings/operation-store';
 import type { Logger } from '../../obs/logger';
 
 /** Dimensão do text-embedding-3-small — pin de contrato do CRM (edge-contract §3). */
 export const RAG_EMBEDDING_DIMENSIONS = 1536;
 
 export interface EmbedConfig {
+  /** Old callers without tenant/source authorization fail closed. */
+  access?: EmbeddingAccess;
   apiKey: string;
   /** id do modelo de embedding — default text-embedding-3-small (pin de contrato). */
   model: string;
@@ -70,41 +74,9 @@ export class EmbedError extends Error {
  * chamada recusada. O corpo de erro da OpenAI é truncado e nunca embute a chave.
  */
 export async function embedQuery(cfg: EmbedConfig, query: string): Promise<number[]> {
-  const base = cfg.baseUrl ?? 'https://api.openai.com';
-  let res: Response;
-  try {
-    // Egress só pelo cliente único com allowlist (F4-03): único destino legítimo é o
-    // endpoint de embedding configurado (base); qualquer outro host falha closed.
-    res = await allowlistedFetch(
-      `${base}/v1/embeddings`,
-      {
-        method: 'POST',
-        headers: {
-          authorization: `Bearer ${cfg.apiKey}`,
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({ model: cfg.model, input: query }),
-        signal: AbortSignal.timeout(cfg.timeoutMs),
-      },
-      { allowlist: buildAllowlist([base]), ...(cfg.log ? { log: cfg.log } : {}) },
-    );
-  } catch (err) {
-    const reason = err instanceof Error ? err.name : 'fetch_failed';
-    throw new EmbedError(`embedding falhou no transporte: ${reason}`);
-  }
-  if (!res.ok) {
-    const detail = (await res.text()).slice(0, 300);
-    throw new EmbedError(`embedding falhou (HTTP ${res.status}): ${detail}`, res.status);
-  }
-  const parsed = (await res.json()) as { data?: Array<{ embedding?: number[] }> };
-  const embedding = parsed.data?.[0]?.embedding;
-  if (!Array.isArray(embedding)) {
-    throw new EmbedError('resposta de embedding sem vetor — shape da API mudou, re-validar');
-  }
-  if (embedding.length !== RAG_EMBEDDING_DIMENSIONS) {
-    throw new EmbedError(
-      `embedding com ${embedding.length} dims, esperado ${RAG_EMBEDDING_DIMENSIONS} (pin de contrato ${cfg.model}) — recall quebraria em silêncio`,
-    );
-  }
-  return embedding;
+  if (!cfg.access || cfg.model !== 'text-embedding-3-small') throw new EmbedError('embedding_authorization_required');
+  const base = (cfg.baseUrl ?? 'https://api.openai.com').replace(/\/$/, '');
+  const profile = embeddingProfile({provider:'openai',base_url:base.endsWith('/v1')?base:base+'/v1',model:'text-embedding-3-small',dimensions:1536,model_revision:'1',enabled:true});
+  const result = await requestEmbedding(profile,cfg.apiKey,query,undefined,cfg.access);
+  return result.embedding;
 }
