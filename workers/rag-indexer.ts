@@ -701,7 +701,7 @@ export async function processRagIndexer(row: EventRow): Promise<HandlerResult> {
       // retain old attempts, explain the cause, and check again in one hour.
       const sourceId=row.event_type==='knowledge_source.updated' ? String(row.payload['knowledge_source_id']??'') : '';
       if(sourceId) await marcarFonte(row.organization_id,sourceId,{
-        last_index_error:'Embedding等待有效配置、操作授权或剩余额度；未发起新的模型请求。',
+        last_index_error:'Embedding等待有效配置、操作授权或剩余额度；已占用额度与历史请求请查看操作账本。',
       });
       return { consumer_key: consumerKey, status: "retry", detail: err.code,
         retry_at: new Date(Date.now()+RETRY_SEM_CHAVE_MS).toISOString() };

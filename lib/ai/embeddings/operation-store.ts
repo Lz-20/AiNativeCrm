@@ -87,6 +87,7 @@ async function transaction<T>(pool: Pool, fn: (c: PoolClient) => Promise<T>): Pr
   } catch (error) {
     await c.query("rollback");
     if ((error as { code?: string }).code === "42P01") return wait("embedding_schema_required");
+    if ((error as { code?: string }).code === "55P03") return wait("embedding_lease_busy");
     throw error;
   } finally {
     c.release();
