@@ -96,8 +96,8 @@ function purposesEmitidosNoCodigo(): Map<string, string[]> {
 const FORA_DO_SEAM: Record<string, { arquivo: string; marcador: string }> = {
   embedding_indexar: { arquivo: "lib/ai/embed.ts", marcador: "embed(" },
   embedding_consultar: {
-    arquivo: "lib/agent-engine/edge/llm/embed.ts",
-    marcador: "/v1/embeddings",
+    arquivo: "lib/ai/knowledge/busca.ts",
+    marcador: 'ponto: "embedding_consultar"',
   },
   visao_de_imagem: {
     arquivo: "workers/media-derive-worker.ts",
