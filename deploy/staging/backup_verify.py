@@ -114,7 +114,7 @@ def safe_policy():
     return policy
 
 
-def catalog_extension(*, allow_0412_pending=False):
+def catalog_extension(*, allow_0412_pending=False, allow_0413_pending=False):
     """Legacy mode stays exact. Activation requires an independently reviewed root file."""
     if not CATALOG_POLICY.exists() and not CATALOG_POLICY.is_symlink():
         return None
@@ -142,7 +142,8 @@ def catalog_extension(*, allow_0412_pending=False):
     except module.CatalogError as error:
         raise VerificationError(error.code) from None
     marker=STATE_ROOT/'schema-0412'/'journal.json'
-    if marker.exists() or marker.is_symlink():
+    marker413=STATE_ROOT/'schema-0413'/'journal.json'
+    if marker.exists() or marker.is_symlink() or marker413.exists() or marker413.is_symlink():
         schema_path=Path(__file__).resolve().with_name('schema_0412.py')
         for parent in schema_path.parents:
             st=parent.lstat();require(stat.S_ISDIR(st.st_mode) and st.st_uid==0 and not st.st_mode&0o022,'schema_module_parent')
@@ -152,8 +153,12 @@ def catalog_extension(*, allow_0412_pending=False):
         spec=importlib.util.spec_from_file_location('installed_schema_0412',schema_path)
         schema=importlib.util.module_from_spec(spec);spec.loader.exec_module(schema)
         try:
-            context=schema.read_context(schema.read(STATE_ROOT/'state.json'),policy,module,allow_pending=allow_0412_pending)
-        except schema.TransitionError as error:raise VerificationError(error.code) from None
+            original=policy;state=schema.read(STATE_ROOT/'state.json')
+            context=schema.read_context(state,original,module,allow_pending=allow_0412_pending)
+            if marker413.exists() or marker413.is_symlink() or state.get('schema_0413'):
+                child=schema.trusted_module('schema_0413')
+                context=child.read_context(state,original,module,allow_pending=allow_0413_pending)
+        except ValueError as error:raise VerificationError(getattr(error,'code','schema_transition_invalid')) from None
         policy=context['policy']
     return module, policy
 
@@ -204,6 +209,25 @@ def previous_partition_names(module, policy):
             and all(prior_evidence.get(k) is True for k in ("restore_verified", "restart_verified", "storage_verified"))
             and prior_evidence.get("differences") == 0, "prior_proof_source_or_restore")
     if proof.get("catalog_policy_sha256") != module.digest(policy):
+        marker413=STATE_ROOT/'schema-0413'/'journal.json'
+        if marker413.exists() or marker413.is_symlink():
+            schema_path=Path(__file__).with_name('schema_0412.py')
+            # The same trusted sibling loader checks all parents/owner/nlink.
+            for parent in schema_path.parents:
+                st=parent.lstat();require(stat.S_ISDIR(st.st_mode) and st.st_uid==0 and not st.st_mode&0o022,'schema_module_parent')
+            st=schema_path.lstat();require(schema_path.resolve()==schema_path and stat.S_ISREG(st.st_mode) and st.st_uid==0
+                and st.st_nlink==1 and not st.st_mode&0o022,'schema_module_owner')
+            spec=importlib.util.spec_from_file_location('schema0413_previous_0412',schema_path)
+            base=importlib.util.module_from_spec(spec);spec.loader.exec_module(base)
+            try:
+                child=base.trusted_module('schema_0413');original=module.parse_policy(CATALOG_POLICY.read_bytes())
+                context=child.read_context(base.read(STATE_ROOT/'state.json'),original,module,allow_pending=True)
+                before=context['evidence']['backup-before.json'] if context.get('pending') else child.read(child.DIRECTORY/'backup-before.json')
+                require(proof==before and proof.get('catalog_policy_sha256')==module.digest(context['prior']['policy']),
+                        'schema0413_transition_prior_proof_anchor')
+                previous_partition_names(module,context['prior']['policy'])
+                return policy['initial_partitions']
+            except ValueError as error:raise VerificationError(getattr(error,'code','schema0413_prior_chain_invalid')) from None
         if (STATE_ROOT/'schema-0412'/'journal.json').exists():
             schema_spec=importlib.util.spec_from_file_location('schema0412_previous',Path(__file__).with_name('schema_0412.py'))
             schema=importlib.util.module_from_spec(schema_spec);schema_spec.loader.exec_module(schema)
@@ -855,9 +879,9 @@ def publish_attestation(value):
     os.replace(temporary, target)
 
 
-def verify_backup(*, allow_0412_pending=False):
+def verify_backup(*, allow_0412_pending=False, allow_0413_pending=False):
     preflight()
-    extension = catalog_extension(allow_0412_pending=allow_0412_pending)
+    extension = catalog_extension(allow_0412_pending=allow_0412_pending,allow_0413_pending=allow_0413_pending)
     previous = previous_partition_names(*extension) if extension else None
     origin = realtime_origin(extension[0]) if extension else None
     private_dir(STATE_ROOT)

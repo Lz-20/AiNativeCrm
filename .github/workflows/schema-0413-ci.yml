@@ -1,0 +1,145 @@
+name: schema-0413-ci
+
+# Fixed controller protocol only. No VPS credentials, deploy or package push.
+on:
+  pull_request:
+    branches: [main, fix/embedding-0412-migration-protocol]
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-protocol:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    concurrency:
+      group: schema-0413-protocol-${{ github.event.pull_request.number || github.ref }}-${{ matrix.pg }}
+      cancel-in-progress: true
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ['15', '17']
+    env:
+      TEST_PG_MAJOR: ${{ matrix.pg }}
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact reviewed Git bytes; preserve installed 0412 and Realtime modules
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = aarch64
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          mkdir -p schema-0413-evidence
+          git show 6d2f700398b8cc1a5bcc9d91bc019a55f53f0d66:deploy/staging/schema_0412.py | cmp - deploy/staging/schema_0412.py
+          git show 6d2f700398b8cc1a5bcc9d91bc019a55f53f0d66:deploy/staging/migrate_0412.py | cmp - deploy/staging/migrate_0412.py
+          git show c4263ef549b234d08e062b0b36e8e9b6f2792fe6:deploy/staging/catalog_policy.py | cmp - deploy/staging/catalog_policy.py
+          git show d7f7123eec55a549d1ab2e1967136a5d543b3645:supabase/migrations/20261119080000_0413_rag_operacoes_controladas.sql > schema-0413-evidence/migration-0413.sql
+          echo 'd15b59cae60ab667b4621acce9fbcf0c9b66efc23598e69003822cb638530bc4  schema-0413-evidence/migration-0413.sql' | sha256sum -c -
+          cmp schema-0413-evidence/migration-0413.sql tests/deployment/fixtures/migration0413.sql.txt
+          test "$(python3 scripts/staging-ci.py schema-fingerprint ea26ee4fb38a65cb15313ab002934238b6324ff8)" = a2c444e558672a6a4b5790ec3b0bcc2be76838f291e6d1be568e0121380f2c20
+          test "$(python3 scripts/staging-ci.py schema-fingerprint d7f7123eec55a549d1ab2e1967136a5d543b3645)" = 37974846957f850f051b020f23493586ce49631aacc66a04bbdbb93b8f708fa3
+          sha256sum deploy/staging/{engine,backup_verify,catalog_policy,schema_0412,migrate_0412,schema_0413,migrate_0413}.py > schema-0413-evidence/controller-files.sha256
+          git rev-parse HEAD > schema-0413-evidence/protocol-source-sha.txt
+      - name: All unchanged 0412/controller tests plus fixed 0413 chain tests
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests/deployment -p 'test_*.py' -v 2>&1 | tee schema-0413-evidence/python-unit.log
+          python3 tests/staging_ci_test.py -v 2>&1 | tee schema-0413-evidence/deploy-protocol.log
+          sudo -n python3 tests/deployment/schema_0412_files_test.py -v 2>&1 | tee schema-0413-evidence/root-0412.log
+          sudo -n python3 tests/deployment/schema_0413_files_test.py -v 2>&1 | tee schema-0413-evidence/root-0413.log
+      - name: Real PG15/17 old and new fixed migrations and production transaction adapter
+        run: |
+          set -euo pipefail
+          python3 tests/deployment/schema_0412_isolated.py | tee schema-0413-evidence/old-protocol-pg.log
+          python3 tests/deployment/schema_0413_isolated.py | tee schema-0413-evidence/new-protocol-pg.log
+          sudo -n env TEST_PG_MAJOR="$TEST_PG_MAJOR" python3 tests/deployment/schema_0413_adapter_test.py | tee schema-0413-evidence/production-adapter.log
+      - name: Unchanged production Realtime contract on exact vendor PostgreSQL17.6
+        if: matrix.pg == '17'
+        run: |
+          set -euo pipefail
+          docker pull --platform linux/arm64 supabase/postgres:17.6.1.136@sha256:f371b5f3f2ac0a05703f33d6e6134515fb2498cab708fb948a0aeb7481467c00
+          sudo -n python3 tests/deployment/schema_0413_realtime.py | tee schema-0413-evidence/realtime-vendor.log
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
+        with:
+          name: schema-0413-pg${{ matrix.pg }}-${{ env.SOURCE_SHA }}
+          path: schema-0413-evidence/
+          if-no-files-found: error
+          retention-days: 30
+
+  fixed-business-regression:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    concurrency:
+      group: schema-0413-rag-${{ github.event.pull_request.number || github.ref }}-${{ matrix.pg }}
+      cancel-in-progress: true
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ['15', '17']
+    env:
+      TEST_DB_IMAGE: pgvector/pgvector:pg${{ matrix.pg }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/preparar-node
+        timeout-minutes: 5
+      - name: Revalidate fixed PR15 business and ledger tests, no suppliers
+        run: |
+          set -euo pipefail
+          mkdir rag-0413-source
+          git archive d7f7123eec55a549d1ab2e1967136a5d543b3645 | tar -xf - -C rag-0413-source
+          cmp package.json rag-0413-source/package.json
+          cmp pnpm-lock.yaml rag-0413-source/pnpm-lock.yaml
+          ln -s ../node_modules rag-0413-source/node_modules
+          cd rag-0413-source
+          pnpm exec vitest run lib/ai/embeddings lib/ai/embed.test.ts lib/agent-engine/edge/llm/embedding-provider.test.ts tests/unit/rag-operation-waiting.test.ts
+          pnpm test:db tests/invariants/embedding-operations.test.ts tests/invariants/embedding-0413-upgrade-from-deployed.test.ts
+
+  immutable-image-compatibility:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
+    concurrency:
+      group: schema-0413-images-${{ github.event.pull_request.number || github.ref }}-${{ matrix.pg }}
+      cancel-in-progress: true
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ['15', '17']
+    env:
+      TEST_PG_MAJOR: ${{ matrix.pg }}
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Fixed ea26ee4 -> d7f7123 -> ea26ee4 real three-container groups, internal-only
+        run: |
+          set -euo pipefail
+          mkdir -p schema-0413-evidence
+          git rev-parse HEAD > schema-0413-evidence/protocol-source-sha.txt
+          python3 tests/deployment/schema_0413_images.py | tee schema-0413-evidence/images.log
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
+        with:
+          name: schema-0413-images-pg${{ matrix.pg }}-${{ env.SOURCE_SHA }}
+          path: schema-0413-evidence/
+          if-no-files-found: error
+          retention-days: 30
