@@ -46,7 +46,6 @@ export const priceReviewSchema = z
           "www.siliconflow.cn",
           "help.aliyun.com",
           "platform.openai.com",
-          "openai.com",
         ].includes(u.hostname)
       );
     }),

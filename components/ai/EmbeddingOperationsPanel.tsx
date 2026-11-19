@@ -54,7 +54,7 @@ export function EmbeddingOperationsPanel({ canWrite }: { canWrite: boolean }) {
     }
   }
   return (
-    <details className="my-3 rounded border p-3" data-testid="embedding-operations">
+    <details className="my-3 rounded-md border p-3" data-testid="embedding-operations">
       <summary>Embedding操作授权与额度</summary>
       <p>
         默认拒绝外联。每项操作绑定组织、来源、内容、模型和配置版本；额度包括结果未知的请求，不自动退款或重试。

@@ -137,7 +137,7 @@ export async function POST(req: Request) {
         throw new Error("price_token_bound");
       if (config.provider === "bailian" && host !== "help.aliyun.com")
         throw new Error("price_evidence_provider");
-      if (config.provider === "openai" && !["platform.openai.com", "openai.com"].includes(host))
+      if (config.provider === "openai" && host !== "platform.openai.com")
         throw new Error("price_evidence_provider");
       // The reviewer explicitly attests the provider's rejecting token ceiling,
       // maximum PRICE (including rounding), currency and immutable evidence.
