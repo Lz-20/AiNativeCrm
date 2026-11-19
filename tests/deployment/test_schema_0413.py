@@ -3,6 +3,7 @@ import importlib.util
 import json
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 ROOT=Path(__file__).resolve().parents[2]
 def load(name,path):
@@ -77,6 +78,26 @@ class Fixed0413Tests(unittest.TestCase):
         m.validate_budget_source('synthetic-merge',lambda revision,path:path.encode())
         with self.assertRaises(ValueError):
             m.validate_budget_source('synthetic-merge',lambda revision,path: b'bypass' if revision!='d7f7123eec55a549d1ab2e1967136a5d543b3645' else path.encode())
+    def test_real_release_source_method_invokes_the_budget_byte_gate(self):
+        engine=old.e;runtime=object.__new__(engine.RootRuntime)
+        runtime._schema_module=m;runtime._schema_transition={'database_schema':m.TO_SCHEMA}
+        target='b'*40;calls=[];changed=False
+        def git(*args):
+            calls.append(args)
+            if args[0]=='config':return engine.REPOSITORY.encode()
+            if args[0] in ('fetch','cat-file','merge-base'):return b''
+            if args[0]=='log':return b'supabase/baseline.sql\x00'
+            if args[0]=='ls-tree':return b'100644 blob '+b'a'*40+b'\tsupabase/baseline.sql\x00100644 blob '+b'a'*40+b'\tlib/database.types.ts\x00'
+            if args[0]=='show':
+                revision,path=args[1].split(':',1)
+                return b'BYPASS' if changed and revision==target else path.encode()
+            raise AssertionError('unexpected_fixture_git_command')
+        runtime.git=git
+        with patch.object(engine,'schema_fingerprint',lambda _:m.TO_SCHEMA):
+            self.assertEqual(runtime.verify_source({'sha':target,'schema_sha256':m.TO_SCHEMA},m.FROM_SOURCE),m.TO_SCHEMA)
+            self.assertEqual(len([c for c in calls if c[0]=='show']),2*len(m.GUARDED_SOURCE_FILES))
+            changed=True
+            with self.assertRaises(engine.Failure):runtime.verify_source({'sha':target,'schema_sha256':m.TO_SCHEMA},m.FROM_SOURCE)
     def test_missing_manual_approval_wrong_sha_schema_sql_identity_and_fields_fail(self):
         for key,value in [('approval_id','NOT-APPROVED'),('approved_at',None),('reviewed_source','0'*40),
           ('migration_sha256','0'*64),('to_schema',m.FROM_SCHEMA),('from_schema',m.legacy.FROM_SCHEMA),
