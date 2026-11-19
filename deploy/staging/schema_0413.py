@@ -4,6 +4,7 @@ The unchanged 0412 verifier authenticates the prior chain first. Nothing here
 accepts arbitrary migrations, target hashes, evidence directories or image tags.
 """
 import copy
+import datetime as dt
 import importlib.util
 from pathlib import Path
 import re
@@ -36,6 +37,13 @@ INDEXES={'ai_embedding_price_reviews_pkey','ai_embedding_price_reviews_organizat
  'ai_embedding_requests_pkey','ai_embedding_requests_organization_id_id_key',
  'ai_embedding_requests_organization_id_operation_id_input_po_key'}
 SCHEMA_PATHS={'supabase/baseline.sql','supabase/migrations/MANIFEST.md',MIGRATION,'lib/database.types.ts'}
+GUARDED_SOURCE_FILES={'lib/ai/embeddings/operation-contract.ts','lib/ai/embeddings/operation-store.ts',
+ 'lib/ai/embeddings/source-revision.ts','lib/ai/embeddings/configuration.ts','lib/ai/embeddings/chave.ts',
+ 'lib/ai/embeddings/profile.ts','lib/ai/embed.ts','workers/rag-indexer.ts','lib/event-log/drain.ts',
+ 'lib/agent-engine/edge/llm/embedding-provider.ts','lib/agent-engine/edge/llm/embed.ts',
+ 'lib/ai/knowledge/busca.ts','lib/agent-engine/agent/search-knowledge.ts','lib/mcp/tools/evolucao.ts',
+ 'app/api/v1/ai/knowledge/embedding/route.ts','app/api/v1/ai/knowledge/embedding/validate/route.ts',
+ 'app/api/v1/ai/knowledge/embedding/operations/route.ts'}
 EVIDENCE_FILES={'catalog-before.json','catalog-after.json','partition-before.json','partition-after.json',
  'backup-before.json','backup-after.json','data-before.json','data-after.json','data-proof.json','state-before.json','prior-registration.json'}
 
@@ -115,7 +123,7 @@ def validate_approval(approval,prior,state):
     for name in ('ci_evidence_sha256','old_state_sha256'):
         need(type(approval[name]) is str and legacy.HASH.fullmatch(approval[name]),'schema0413_approval_hash')
     need(type(approval['approval_id']) is str and re.fullmatch('[a-f0-9-]{36}',approval['approval_id']), 'schema0413_human_approval_required')
-    timestamp(approval['approved_at'])
+    need(timestamp(approval['approved_at'])<=dt.datetime.now(dt.timezone.utc),'schema0413_future_approval')
     old=approval['old_release']
     need(type(old) is dict and old.get('kind')=='git' and old.get('sha')==FROM_SOURCE
          and old.get('schema_sha256')==FROM_SCHEMA,'schema0413_old_release')
@@ -241,6 +249,14 @@ def validate_release(release,context,*,old_profile_in_use=False):
         return
     need(release==old,'schema0413_unapproved_old_release')
     need(not old_profile_in_use,'schema0413_old_app_embedding_or_requests_in_use')
+
+
+def validate_budget_source(sha,read_git_blob):
+    # A merge commit may change the commit identity, but it cannot silently
+    # replace the reviewed budget/admission boundaries while keeping Schema413.
+    for path in sorted(GUARDED_SOURCE_FILES):
+        need(raw_hash(read_git_blob(sha,path))==raw_hash(read_git_blob(REVIEWED_SOURCE,path)),
+             'schema0413_reviewed_budget_source_changed')
 
 
 class MigrationCoordinator:

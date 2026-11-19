@@ -452,6 +452,10 @@ class RootRuntime:
         need(b'supabase/baseline.sql\x00' in raw and b'lib/database.types.ts\x00' in raw,'source_schema_inventory_present')
         actual=schema_fingerprint(raw)
         need(actual==request['schema_sha256'],'request_schema_does_not_match_commit')
+        guard=getattr(getattr(self,'_schema_module',None),'validate_budget_source',None)
+        if guard:
+            try:guard(sha,lambda revision,path:self.git('show',revision+':'+path))
+            except self._schema_module.TransitionError as error:raise Failure(error.code) from None
         return actual
 
     def inspect(self,ids):

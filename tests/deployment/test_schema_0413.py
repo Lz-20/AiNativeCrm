@@ -24,8 +24,9 @@ def state_and_prior(before,policy):
 
 
 def approval(before,after,topology,prior,state):
-    a=m.static_projection(before,topology,prior['policy'],old.catalog.NOW,cp.SOURCE_CONTRACT)
-    z=m.static_projection(after,topology,prior['policy'],old.catalog.NOW,cp.SOURCE_CONTRACT)
+    when=prior['policy']['approved_at']
+    a=m.static_projection(before,topology,prior['policy'],when,cp.SOURCE_CONTRACT)
+    z=m.static_projection(after,topology,prior['policy'],when,cp.SOURCE_CONTRACT)
     change=m.delta(a,z)
     return {'format':1,'transition':'rag-0413','from_source':m.FROM_SOURCE,'reviewed_source':m.REVIEWED_SOURCE,
       'from_schema':m.FROM_SCHEMA,'to_schema':m.TO_SCHEMA,'migration_sha256':m.MIGRATION_SHA256,
@@ -34,7 +35,7 @@ def approval(before,after,topology,prior,state):
       'prior_receipt_sha256':prior['receipt_sha256'],'old_policy_sha256':m.digest(prior['policy']),
       'old_static_sha256':m.digest(a),'old_state_sha256':m.digest(state),'old_release':copy.deepcopy(state['current']),
       'delta':change,'delta_sha256':m.digest(change),'approval_id':'00000000-0000-4000-8000-000000000413',
-      'approved_at':old.catalog.NOW,'ci_evidence_sha256':'c'*64}
+      'approved_at':when,'ci_evidence_sha256':'c'*64}
 
 
 def fixture():
@@ -72,6 +73,10 @@ class Fixed0413Tests(unittest.TestCase):
         before=copy.deepcopy(self.state);m.validate_approval(self.plan,self.prior,self.state);self.assertEqual(before,self.state)
     def test_sql_fixture_exact_identity(self):
         self.assertEqual(m.raw_hash((ROOT/'tests/deployment/fixtures/migration0413.sql.txt').read_bytes()),m.MIGRATION_SHA256)
+    def test_new_schema_cannot_hide_modified_budget_code_behind_reviewed_ancestry(self):
+        m.validate_budget_source('synthetic-merge',lambda revision,path:path.encode())
+        with self.assertRaises(ValueError):
+            m.validate_budget_source('synthetic-merge',lambda revision,path: b'bypass' if revision!='d7f7123eec55a549d1ab2e1967136a5d543b3645' else path.encode())
     def test_missing_manual_approval_wrong_sha_schema_sql_identity_and_fields_fail(self):
         for key,value in [('approval_id','NOT-APPROVED'),('approved_at',None),('reviewed_source','0'*40),
           ('migration_sha256','0'*64),('to_schema',m.FROM_SCHEMA),('from_schema',m.legacy.FROM_SCHEMA),
