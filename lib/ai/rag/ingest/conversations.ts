@@ -183,6 +183,7 @@ export async function ingestConversationsBatch(
       knowledgeSourceId: sourceId,
       agentId,
       sourceType: "conversas",
+      ...(chave.profile ? { embeddingProfile: chave.profile } : {}),
     });
     versionId = v.versionId;
   } catch (err) {
@@ -314,7 +315,7 @@ export async function ingestConversationsBatch(
         break;
       }
 
-      const { error: upsertErr } = await admin.from("ai_chunks").upsert(
+      const { error: upsertErr } = await writeKnowledgeChunk(
         {
           organization_id: organizationId,
           kb_version_id: versionId,
@@ -330,16 +331,7 @@ export async function ingestConversationsBatch(
             anonymizer_hits: hits.length,
           },
         },
-        {
-          // A constraint que EXISTE é `ai_chunks_position_unique`
-          // (knowledge_source_id, kb_version_id, position). O alvo antigo
-          // (organization_id, kb_version_id, content_hash) NUNCA existiu, e o
-          // Postgres respondia "there is no unique or exclusion constraint
-          // matching the ON CONFLICT specification" — TODO chunk de conversa
-          // falhava ao gravar, e a conversa era marcada 'ingested' assim mesmo.
-          onConflict: "knowledge_source_id,kb_version_id,position",
-          ignoreDuplicates: true,
-        },
+        chave.profile,
       );
 
       if (upsertErr) {
@@ -383,7 +375,8 @@ export async function ingestConversationsBatch(
   try {
     if (totalChunkInserts > 0) {
       await markVersionReady(versionId, organizationId, totalChunkInserts);
-      await activateVersion({ organizationId, knowledgeSourceId: sourceId, versionId });
+      await activateVersion({ organizationId, knowledgeSourceId: sourceId, versionId,
+        ...(chave.profile ? { embeddingFingerprint: chave.profile.fingerprint } : {}) });
     } else {
       await markVersionFailed(versionId, organizationId, "no_chunks_ingested");
     }
@@ -396,3 +389,4 @@ export async function ingestConversationsBatch(
 
   return { processed, flaggedReview, skipped, embeddingSkipped: false };
 }
+import { writeKnowledgeChunk } from "@/lib/ai/embeddings/write-chunk";

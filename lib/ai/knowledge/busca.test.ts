@@ -5,6 +5,7 @@ vi.mock("@/lib/ai/embed", () => ({
   }),
 }));
 import { buscarConhecimento } from "./busca";
+import { embeddingProfile } from "@/lib/ai/embeddings/profile";
 function db(fail = false) {
   const filters: Array<[string, unknown]> = [];
   const builder = {
@@ -59,6 +60,15 @@ const input = {
 };
 const embed = vi.fn().mockResolvedValue({ embedding: [0.1, 0.2] });
 describe("retrieval provenance", () => {
+  it("matches the actual profile and dimensions and cites the observed parallel chunk", async () => {
+    const profile = embeddingProfile({ provider: "bailian", base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "text-embedding-v4", dimensions: 1536, model_revision: "1", enabled: true });
+    const { client } = db();
+    const mockedEmbedding = vi.fn().mockResolvedValue({ embedding: Array(1536).fill(0.1), profile, model: profile.fingerprint });
+    const result = await buscarConhecimento(client as never, input, { embed: mockedEmbedding });
+    expect(client.rpc).toHaveBeenCalledWith("fn_search_knowledge_profile", expect.objectContaining({ p_fingerprint: profile.fingerprint, p_dimensions: 1536, p_source_ids: ["source"] }));
+    expect(client.from).toHaveBeenCalledWith("ai_embedding_chunks");
+    expect(result.trechos[0]?.index_version_id).toBe("observed-version");
+  });
   it("reads index identity from the observed chunk with explicit tenant/source bounds", async () => {
     const { client, filters } = db();
     const result = await buscarConhecimento(client as never, input, { embed });

@@ -78,8 +78,8 @@ function seedAcervo(): void {
     -- UMA versão de índice compartilhada pelas duas fontes: é a forma das
     -- versões anteriores à 0181, e ela precisa continuar funcionando.
     insert into public.ai_knowledge_versions
-      (id, organization_id, agent_id, knowledge_source_id, version_number, status, is_active)
-      values ('${KBV_LEGADA}', '${GOV_ORG}', '${AGENTE_A}', null, 1, 'ready', true)
+      (id, organization_id, agent_id, knowledge_source_id, version_number, status, is_active, embedding_model, embedding_dims)
+      values ('${KBV_LEGADA}', '${GOV_ORG}', '${AGENTE_A}', null, 1, 'ready', true, 'openai/text-embedding-3-small',1536)
       on conflict do nothing;
 
     update public.ai_knowledge_sources

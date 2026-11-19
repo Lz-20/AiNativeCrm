@@ -1,14 +1,6 @@
-/**
- * Embedding do RAG — indexação e busca, o mesmo modelo dos dois lados.
- *
- * A chave vem de `lib/ai/embeddings/chave.ts`, que resolve pela organização:
- * binding do ponto → credencial OpenAI da org → gateway da instalação → chave
- * da instalação. Até a 0181 este arquivo lia SÓ `process.env`, e o efeito era o
- * pior possível para quem instala: cadastrar a chave da OpenAI pela tela não
- * habilitava a base de conhecimento, enquanto duas telas do produto prometiam
- * que sim.
+/** Canonical embedding entry for every RAG indexer and retriever.
+ * Explicit profiles never fall back to the legacy OpenAI/gateway path.
  */
-
 import { createOpenAI } from "@ai-sdk/openai";
 import { embed } from "ai";
 
@@ -20,6 +12,8 @@ import {
   type PontoDeEmbedding,
 } from "@/lib/ai/embeddings/chave";
 import { gatewayHeaders, type ModelId } from "@/lib/ai/gateway";
+import { requestEmbedding } from "@/lib/agent-engine/edge/llm/embedding-provider";
+import { assertEmbedding, EmbeddingConfigurationError, type EmbeddingProfile } from "./embeddings/profile";
 
 export interface EmbedOptions {
   organizationId: string;
@@ -41,6 +35,7 @@ export interface EmbedResult {
   embedding: number[];
   promptTokens: number;
   model: string;
+  profile?: EmbeddingProfile;
 }
 
 /** Falta de chave é um ESTADO do tenant, não um acidente: tipo próprio para quem
@@ -49,8 +44,7 @@ export class SemChaveDeEmbeddingError extends Error {
   readonly code = "embedding_sem_chave";
   constructor(readonly organizationId: string) {
     super(
-      "Esta organização não tem chave da OpenAI para indexar nem consultar o material. " +
-        "Cadastre uma em Credenciais, ou defina OPENAI_API_KEY na instalação.",
+      "Esta organização não tem uma credencial de embedding disponível. Configure o provedor do conhecimento.",
     );
     this.name = "SemChaveDeEmbeddingError";
   }
@@ -66,7 +60,17 @@ export async function embedText(
     throw new SemChaveDeEmbeddingError(opts.organizationId);
   }
 
+  if (chave.profile) {
+    if (chave.organizationId !== opts.organizationId)
+      throw new EmbeddingConfigurationError("embedding_tenant_mismatch");
+    if (opts.model && opts.model !== chave.profile.model)
+      throw new EmbeddingConfigurationError("embedding_profile_override_forbidden");
+    const result = await requestEmbedding(chave.profile, chave.apiKey ?? "", content);
+    return { ...result, model: chave.profile.fingerprint, profile: chave.profile };
+  }
+
   const modelId = String(opts.model ?? MODELO_DE_EMBEDDING);
+  if (modelId !== MODELO_DE_EMBEDDING) throw new EmbeddingConfigurationError("embedding_profile_override_forbidden");
 
   // COM gateway: a string `openai/text-embedding-3-small` é roteada por ele, que
   // lê `AI_GATEWAY_API_KEY` do process.env. Headers vão junto p/ observabilidade
@@ -83,13 +87,14 @@ export async function embedText(
         ...(chave.baseUrl ? { baseURL: chave.baseUrl } : {}),
       }).textEmbeddingModel(modelId.replace(/^openai\//, ""));
 
-  const result = await embed({
+  let result;
+  try { result = await embed({
     model: resolvido,
     value: content,
     headers: chave.viaGateway
       ? gatewayHeaders({ organizationId: opts.organizationId })
       : undefined,
-  });
+  }); } catch { throw new EmbeddingConfigurationError("embedding_upstream_failed"); }
 
   // Dimensão asserida a cada chamada: divergir de modelo quebra o recall em
   // SILÊNCIO (os vetores deixam de ser comparáveis), e uma chamada recusada é
@@ -100,6 +105,7 @@ export async function embedText(
         `(pin de contrato ${modelId}) — recall quebraria em silêncio`,
     );
   }
+  assertEmbedding(result.embedding, DIMENSOES_DO_EMBEDDING);
 
   // EmbedResult.embedding is `number[]` for single-value embed.
   const promptTokens =

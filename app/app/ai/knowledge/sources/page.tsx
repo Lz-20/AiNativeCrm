@@ -11,6 +11,7 @@ import {
 import type { EstadoDaChave } from "@/components/ai/ChaveDeConhecimento";
 import type { SourceRow } from "@/hooks/ai/useKnowledgeSources";
 import { AcervoClient, type AgenteQueUsa } from "./_client";
+import { readEmbeddingConfiguration } from "@/lib/ai/embeddings/configuration";
 
 export const dynamic = "force-dynamic";
 
@@ -46,7 +47,7 @@ export default async function AcervoPage() {
 
   const supabase = await createClient();
 
-  const [{ data: sourcesRaw }, { data: agentesRaw }, chave, { data: credenciais }] =
+  const [{ data: sourcesRaw }, { data: agentesRaw }, chave, { data: credenciais }, embeddingConfiguration] =
     await Promise.all([
       supabase
         .from("ai_knowledge_sources")
@@ -61,13 +62,14 @@ export default async function AcervoPage() {
         .select("id, name, published_version_id, ai_agent_versions!inner(id, knowledge_source_ids)")
         .eq("organization_id", activeOrg.orgId)
         .is("archived_at", null),
-      resolverChaveDeEmbedding(activeOrg.orgId),
+      resolverChaveDeEmbedding(activeOrg.orgId).catch(() => null),
       supabase
         .from("ai_provider_credentials_safe")
         .select("id, label, api_key_last4, validated_at, validation_error, is_active")
         .eq("organization_id", activeOrg.orgId)
         .eq("provider", "openai")
         .order("created_at", { ascending: true }),
+      readEmbeddingConfiguration(activeOrg.orgId),
     ]);
 
   const initialSources = (sourcesRaw ?? []) as unknown as SourceRow[];
@@ -90,6 +92,7 @@ export default async function AcervoPage() {
 
   const estadoDaChave: EstadoDaChave = {
     pode_indexar: chave !== null,
+    embedding_configured: embeddingConfiguration !== null,
     origem: chave?.origem ?? null,
     explicacao: chave ? EXPLICACAO_DA_ORIGEM[chave.origem] : null,
     chave_em_uso: chave?.rotulo ?? null,
@@ -112,6 +115,7 @@ export default async function AcervoPage() {
         initialSources={initialSources}
         initialChave={estadoDaChave}
         agentes={agentes}
+        canConfigureEmbedding={ROLE_RANK[activeOrg.role] >= ROLE_RANK.admin}
       />
     </div>
   );

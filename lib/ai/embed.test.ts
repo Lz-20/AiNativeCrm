@@ -21,6 +21,7 @@
  * uma falha genérica que a tela não sabe traduzir.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type * as EmbeddingKeyModule from "@/lib/ai/embeddings/chave";
 
 const embedSpy = vi.fn();
 vi.mock("ai", () => ({
@@ -30,7 +31,7 @@ vi.mock("ai", () => ({
 let chaveMock: () => unknown;
 vi.mock("@/lib/ai/embeddings/chave", async () => {
   const real =
-    await vi.importActual<typeof import("@/lib/ai/embeddings/chave")>("@/lib/ai/embeddings/chave");
+    await vi.importActual<typeof EmbeddingKeyModule>("@/lib/ai/embeddings/chave");
   return {
     ...real,
     // Mockado porque a resposta REAL depende de banco e de `.env.local`, e este
@@ -41,6 +42,7 @@ vi.mock("@/lib/ai/embeddings/chave", async () => {
 });
 
 import { embedText, SemChaveDeEmbeddingError } from "@/lib/ai/embed";
+import { embeddingProfile } from "./embeddings/profile";
 
 beforeEach(() => {
   embedSpy.mockReset();
@@ -61,6 +63,17 @@ beforeEach(() => {
 });
 
 describe("embedText", () => {
+  it("cannot reuse a cached custom embedding credential in a different tenant", async () => {
+    const profile = embeddingProfile({ provider: "siliconflow", base_url: "https://api.siliconflow.cn/v1", model: "BAAI/bge-m3", dimensions: 1024, model_revision: "1", enabled: true });
+    const fetcher = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("live_provider_forbidden"));
+    try {
+      await expect(embedText("SVC-101", { organizationId: "org-b", chave: {
+        organizationId: "org-a", profile, apiKey: "synthetic-credential", baseUrl: profile.baseUrl,
+        viaGateway: false, origem: "configuracao_embedding", rotulo: null, avisos: [],
+      } })).rejects.toThrow("embedding_tenant_mismatch");
+      expect(fetcher).not.toHaveBeenCalled(); expect(embedSpy).not.toHaveBeenCalled();
+    } finally { fetcher.mockRestore(); }
+  });
   it("SEM gateway, usa o provider OpenAI explícito — nunca a string com barra", async () => {
     await embedText("oi", { organizationId: "org-1" });
 

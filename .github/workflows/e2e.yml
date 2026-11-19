@@ -749,6 +749,7 @@ jobs:
         followup-publicado-abre-no-construtor.spec.ts
         automacao-diz-a-verdade.spec.ts
         acervo-de-conhecimento.spec.ts
+        embedding-configuration.spec.ts
         agenda-kit-visual.spec.ts
         agenda-conectar-google.spec.ts
         agenda-painel-cabe-na-tela.spec.ts
@@ -1766,6 +1767,13 @@ jobs:
           # porque com `| tee` o `$?` seria o do tee — sempre 0.
           SAIDA="${RUNNER_TEMP}/e2e-parte-${PARTE}.log"
           set +e
+          # The new RAG browser journey uses real local API/Storage/pgvector;
+          # only its provider HTTP response is intercepted in test processes.
+          if [ "${{ matrix.parte }}" = 2 ]; then
+            export E2E_EMBEDDING_FIXTURE=1
+            export E2E_EMBEDDING_COUNTER_FILE=/tmp/embedding-ci-counter.jsonl
+            export NODE_OPTIONS="${NODE_OPTIONS:-} --import=$(pwd)/tests/fixtures/embedding-provider-offline.mjs"
+          fi
           timeout -k 30 --signal=TERM "${FOLGA}s" pnpm exec playwright test --workers=1 $LISTA --reporter=list 2>&1 | tee "$SAIDA"
           CODIGO=${PIPESTATUS[0]}
           set -e
@@ -1822,6 +1830,15 @@ jobs:
           AUTH_RATE_LIMIT_LOGIN_IP: "1000"
           # ver o comentário do passo de build: vazio NÃO desliga.
           SENTRY_DSN: "off"
+
+      - name: Preserve offline embedding browser proof
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always() && matrix.parte == 2
+        with:
+          name: embedding-offline-browser-proof
+          path: test-results/embedding-svc101-offline.png
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Preservar prova visual do alvo de toque em chinês
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

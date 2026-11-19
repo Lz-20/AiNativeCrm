@@ -860,6 +860,18 @@ type CategoriaDeHost =
 type EntradaDeHost = { categoria: CategoriaDeHost; motivo: string };
 
 const HOSTS_DECLARADOS: Record<string, EntradaDeHost> = {
+  "api.siliconflow.cn": {
+    categoria: "FORNECEDOR",
+    motivo: "Endpoint oficial SiliconFlow para embeddings escolhidos pela organização; endereço exato revisto contra SSRF, independente do modelo de inferência.",
+  },
+  "dashscope.aliyuncs.com": {
+    categoria: "FORNECEDOR",
+    motivo: "Endpoint público compatível com OpenAI do Alibaba Cloud Bailian; usado exclusivamente pelo perfil de embedding configurado e credencial do próprio tenant.",
+  },
+  "dashscope-intl.aliyuncs.com": {
+    categoria: "FORNECEDOR",
+    motivo: "Endpoint internacional oficial do Bailian; opção explícita da organização no perfil de embedding, sem aceitar domínios arbitrários ou fallback.",
+  },
   "open.feishu.cn": {
     categoria: "FORNECEDOR",
     motivo: "飞书官方 token 与 IM API 目的地；仅在真实服务端应用配置后调用，不是部署者个人域名。",

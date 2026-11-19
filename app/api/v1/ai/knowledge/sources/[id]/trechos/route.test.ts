@@ -10,7 +10,7 @@ import { GET } from "./route";
 const id = "11111111-1111-4111-8111-111111111111";
 const version = "22222222-2222-4222-8222-222222222222";
 const chunk = "33333333-3333-4333-8333-333333333333";
-function stub(active = true) {
+function stub(active = true, profiled = false) {
   const filters: Array<[string, unknown]> = [];
   mocks.from.mockImplementation((table: string) => {
     const result = {
@@ -23,6 +23,7 @@ function stub(active = true) {
               is_active: active,
               chunks_count: 4,
             }
+          : table === "ai_knowledge_versions" ? { embedding_model: profiled ? "embedding:v1:test" : "openai/text-embedding-3-small", knowledge_source_id: profiled ? id : null }
           : [{ id: chunk, kb_version_id: version, content: "Historical quote" }],
       error: null,
     };
@@ -43,6 +44,12 @@ function stub(active = true) {
 }
 beforeEach(() => vi.clearAllMocks());
 describe("exact knowledge index locators", () => {
+  it("reads configured index evidence from the parallel vector store", async () => {
+    stub(true, true);
+    expect((await GET(new Request(`http://localhost/trechos?version_id=${version}`), { params: Promise.resolve({ id }) })).status).toBe(200);
+    expect(mocks.from).toHaveBeenCalledWith("ai_embedding_chunks");
+    expect(mocks.from).not.toHaveBeenCalledWith("ai_chunks");
+  });
   it("resolves the observed version/chunk while marking it as historical", async () => {
     const filters = stub();
     const response = await GET(

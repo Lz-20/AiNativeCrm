@@ -19,9 +19,11 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { ok, fail } from "@/lib/api/wrappers";
+import { ok } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
 import { createClient } from "@/lib/supabase/server";
+import { readEmbeddingConfiguration } from "@/lib/ai/embeddings/configuration";
+import { EmbeddingConfigurationError } from "@/lib/ai/embeddings/profile";
 import {
   EXPLICACAO_DA_ORIGEM,
   resolverChaveDeEmbedding,
@@ -36,7 +38,12 @@ export async function GET(): Promise<Response> {
   if (!authz.ok) return authz.response;
   const { org: activeOrg } = authz;
 
-  const chave = await resolverChaveDeEmbedding(activeOrg.orgId);
+  const configured = await readEmbeddingConfiguration(activeOrg.orgId);
+  let embeddingError: string | null = null;
+  const chave = await resolverChaveDeEmbedding(activeOrg.orgId).catch((error: unknown) => {
+    embeddingError = error instanceof EmbeddingConfigurationError ? error.code : "embedding_configuration_unavailable";
+    return null;
+  });
 
   const supabase = await createClient();
   const { data: credenciais } = await supabase
@@ -49,6 +56,8 @@ export async function GET(): Promise<Response> {
   return ok(
     {
       pode_indexar: chave !== null,
+      embedding_configured: configured !== null,
+      embedding_error: embeddingError,
       origem: chave?.origem ?? null,
       explicacao: chave ? EXPLICACAO_DA_ORIGEM[chave.origem] : null,
       chave_em_uso: chave?.rotulo ?? null,

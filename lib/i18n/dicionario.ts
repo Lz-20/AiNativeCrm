@@ -8216,6 +8216,8 @@ export const DICIONARIO: Traducoes = {
   "Não consegui guardar o arquivo.": { es: "No pude guardar el archivo." },
   "Material cadastrado. Estou preparando — em instantes o agente já sabe.": { es: "Material cargado. Lo estoy preparando — en instantes el agente ya lo sabe." },
   "Material cadastrado. Ele fica esperando a chave da OpenAI para ser preparado.": { es: "Material cargado. Queda esperando la clave de OpenAI para ser preparado." },
+  "Material cadastrado. Ele aguarda a configuração de embedding para ser preparado.": { es: "Material cargado. Espera la configuración de embeddings para ser preparado." },
+  "Sem embedding configurado, o material fica guardado. Configure e valide o provedor de conhecimento antes de indexar.": { es: "Sin embeddings configurados, el material queda guardado. Configure y valide el proveedor de conocimiento antes de indexar." },
   "Ensinar algo novo ao agente": { es: "Enseñarle algo nuevo al agente" },
   "Nome do material": { es: "Nombre del material" },
   "Perguntas frequentes da loja": { es: "Preguntas frecuentes de la tienda" },

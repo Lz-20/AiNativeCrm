@@ -73,7 +73,7 @@ export async function searchKnowledge(
   }
 
   try {
-    const { embedding } = await embed(args.query, {
+    const { embedding, profile, model } = await embed(args.query, {
       organizationId: args.organizationId,
       ponto: 'embedding_consultar',
     });
@@ -88,11 +88,18 @@ export async function searchKnowledge(
     // quando ela não passa. Sem isso, "a base não tem essa informação" e "a base
     // tem e o corte está apertado demais" são indistinguíveis — e são problemas
     // com consertos opostos.
-    const { rows } = usaFontes
+    if (profile && !usaFontes) throw new Error('embedding_source_scope_required');
+    const { rows } = profile
+      ? await pool.query<KnowledgeHit>(
+          `select chunk_id, knowledge_source_id, source_name, content, similarity, metadata
+           from fn_search_knowledge_profile($1,$2::uuid[],$3::vector,$4,$5,$6,$7)`,
+          [args.organizationId, fontes, vec, profile.fingerprint, profile.dimensions, args.topK, PISO_SIMILARIDADE],
+        )
+      : usaFontes
       ? await pool.query<KnowledgeHit>(
           `select chunk_id, knowledge_source_id, source_name, content, similarity, metadata
            from fn_buscar_trechos_das_fontes($1, $2::uuid[], $3::vector, $4, $5, $6)`,
-          [args.organizationId, fontes, vec, args.topK, PISO_SIMILARIDADE, MODELO_DE_EMBEDDING],
+          [args.organizationId, fontes, vec, args.topK, PISO_SIMILARIDADE, model ?? MODELO_DE_EMBEDDING],
         )
       : await pool.query<KnowledgeHit>(
           `select chunk_id, knowledge_source_id, content, similarity, metadata
@@ -134,12 +141,12 @@ export async function searchKnowledge(
           args.agentId ?? null,
         ],
       );
-    } catch (err) {
+    } catch {
       // Engolido de propósito — o `catch` externo transformaria isto em
       // `knowledge_unavailable` e o modelo diria ao cliente que a base caiu, por
       // causa de uma linha de telemetria.
       deps?.log?.warn('busca de conhecimento não registrada', {
-        error: (err instanceof Error ? err.message : String(err)).slice(0, 120),
+        error: 'knowledge_telemetry_failed',
       });
     }
 
@@ -147,8 +154,7 @@ export async function searchKnowledge(
   } catch (err) {
     // Falta de chave é ESTADO do tenant e merece uma frase própria: "a base caiu"
     // manda o operador procurar um incidente que não existe.
-    const detalhe = err instanceof Error ? err.message : String(err);
-    if (detalhe.includes('embedding_sem_chave') || /SemChaveDeEmbedding/.test(detalhe)) {
+    if (err instanceof Error && (err.name === 'SemChaveDeEmbeddingError' || err.message === 'embedding_sem_chave')) {
       return {
         ok: false,
         error: {

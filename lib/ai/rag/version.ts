@@ -16,8 +16,11 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { MODELO_DE_EMBEDDING, DIMENSOES_DO_EMBEDDING } from "@/lib/ai/embeddings/chave";
+import type { EmbeddingProfile } from "@/lib/ai/embeddings/profile";
+import type { Json } from "@/lib/database.types";
 
 export interface CreateVersionParams {
+  embeddingProfile?: EmbeddingProfile;
   organizationId: string;
   /** A fonte que esta versão indexa. */
   knowledgeSourceId: string;
@@ -70,8 +73,9 @@ export async function createKnowledgeVersion(
       is_active: false,
       // Proveniência: sem ela, "indexado com um modelo e consultado com outro"
       // é a falha que responde com trecho errado e nota alta.
-      embedding_model: MODELO_DE_EMBEDDING,
-      embedding_dims: DIMENSOES_DO_EMBEDDING,
+      embedding_model: params.embeddingProfile?.fingerprint ?? MODELO_DE_EMBEDDING,
+      embedding_dims: params.embeddingProfile?.dimensions ?? DIMENSOES_DO_EMBEDDING,
+      ...(params.embeddingProfile ? { embedding_profile: { ...params.embeddingProfile } as Json } : {}),
     })
     .select("id, version_number")
     .single();
@@ -138,11 +142,20 @@ export async function markVersionFailed(
  * que impede o índice de recusar a troca.
  */
 export async function activateVersion(params: {
+  embeddingFingerprint?: string;
   organizationId: string;
   knowledgeSourceId: string;
   versionId: string;
 }): Promise<void> {
   const admin = createAdminClient();
+  if (params.embeddingFingerprint) {
+    const { error } = await admin.rpc("fn_activate_embedding_version", {
+      p_organization_id: params.organizationId, p_source_id: params.knowledgeSourceId,
+      p_version_id: params.versionId, p_fingerprint: params.embeddingFingerprint,
+    });
+    if (error) throw new Error("embedding_activation_failed");
+    return;
+  }
 
   // Pré-checagem de tenant: o admin client bypassa RLS, então conferir aqui é
   // obrigatório e não paranoia.

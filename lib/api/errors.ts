@@ -8,6 +8,13 @@
  */
 
 export const ApiErrorCodes = {
+  embedding_configuration_unavailable: "embedding_configuration_unavailable",
+  embedding_configuration_changed: "embedding_configuration_changed",
+  embedding_profile_invalid: "embedding_profile_invalid",
+  embedding_credential_unavailable: "embedding_credential_unavailable",
+  embedding_configuration_rejected: "embedding_configuration_rejected",
+  embedding_validation_requires_disabled_config: "embedding_validation_requires_disabled_config",
+  embedding_validation_failed: "embedding_validation_failed",
   // 400 — body / params
   invalid_request: "invalid_request",
   validation_failed: "validation_failed", // Zod retornou erros de schema (422 também aceita)

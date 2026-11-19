@@ -51,9 +51,9 @@ function seedKb(): void {
       ('${CASA_SOURCE}',    '${GOV_ORG}',     '${CASA_AGENT}',    'faq', 'Fonte Casa',    'ready')
       on conflict do nothing;
 
-    insert into public.ai_knowledge_versions (id, organization_id, agent_id, version_number, is_active) values
-      ('${VIZINHA_KBV}', '${VIZINHA_ORG}', '${VIZINHA_AGENT}', 1, true),
-      ('${CASA_KBV}',    '${GOV_ORG}',     '${CASA_AGENT}',    1, true)
+    insert into public.ai_knowledge_versions (id, organization_id, agent_id, version_number, is_active, embedding_model, embedding_dims) values
+      ('${VIZINHA_KBV}', '${VIZINHA_ORG}', '${VIZINHA_AGENT}', 1, true, 'openai/text-embedding-3-small', 1536),
+      ('${CASA_KBV}',    '${GOV_ORG}',     '${CASA_AGENT}',    1, true, 'openai/text-embedding-3-small', 1536)
       on conflict do nothing;
 
     insert into public.ai_chunks

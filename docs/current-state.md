@@ -96,6 +96,10 @@ correspondentes localizados no repo):
   customer 360, contatos, tags, Nuvemshop.
 - **IA nativa** — agentes com RAG por tenant (pgvector), sentiment, handoff IA→humano,
   budget por org, MCP server interno.
+  Embedding independente configurável na tela de materiais: a configuração alimenta
+  `embedText`, o indexador e a busca MCP; versões guardam a identidade do espaço vetorial.
+  O armazenamento paralelo preserva índices legados de 1536 dimensões. Validação paga,
+  migração do banco e prova de recuperação real exigem seus próprios gates de aceitação.
 - **LGPD** — export e redact via workers, anonimização em cascata, consentimento auditado.
 - **Self-host** — `hostgator-setup-kit`, `baseline.sql` auto-curativo, runbook de produção.
 - **Webhooks & automação** — captação + regras QUANDO/SE/ENTÃO + gatilhos externos.
