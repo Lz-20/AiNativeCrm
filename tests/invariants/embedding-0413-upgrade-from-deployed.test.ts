@@ -58,6 +58,21 @@ describe("0413 additive upgrade from the deployed 0412 schema", () => {
           `select md5((select jsonb_agg(to_jsonb(e) order by id)::text from public.event_log e where organization_id='${org}') || (select jsonb_agg(to_jsonb(c) order by id)::text from public.ai_chunks c where organization_id='${org}'))`,
         );
       const before = snapshot();
+      const oldRelations = query(
+        "select array_agg(c.oid order by c.oid)::text from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname in ('public','auth','storage')",
+      );
+      const securitySnapshot = () =>
+        query(`select jsonb_build_object(
+        'relations',(select jsonb_agg(jsonb_build_array(oid,relname,relkind,relowner,relacl,relrowsecurity,relforcerowsecurity) order by oid) from pg_class where oid=any('${oldRelations}'::oid[])),
+        'columns',(select jsonb_agg(jsonb_build_array(attrelid,attnum,attname,atttypid,atttypmod,attnotnull,attidentity,attgenerated) order by attrelid,attnum) from pg_attribute where attrelid=any('${oldRelations}'::oid[]) and attnum>0),
+        'constraints',(select jsonb_agg(jsonb_build_array(conrelid,conname,pg_get_constraintdef(oid)) order by conrelid,conname) from pg_constraint where conrelid=any('${oldRelations}'::oid[])),
+        'policies',(select jsonb_agg(to_jsonb(p) order by p.oid) from pg_policy p where polrelid=any('${oldRelations}'::oid[])),
+        'triggers',(select jsonb_agg(jsonb_build_array(tgrelid,tgname,pg_get_triggerdef(oid)) order by tgrelid,tgname) from pg_trigger where tgrelid=any('${oldRelations}'::oid[]) and not tgisinternal),
+        'functions',(select jsonb_agg(jsonb_build_array(p.oid,p.proowner,p.proacl,pg_get_functiondef(p.oid)) order by p.oid) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname in ('public','auth','storage') and p.prokind in ('f','p')),
+        'roles',(select jsonb_agg(jsonb_build_array(rolname,rolsuper,rolinherit,rolcreaterole,rolcreatedb,rolcanlogin,rolreplication,rolbypassrls) order by rolname) from pg_roles),
+        'memberships',(select jsonb_agg(to_jsonb(m) order by roleid,member) from pg_auth_members m),
+        'default_acl',(select jsonb_agg(to_jsonb(a) order by oid) from pg_default_acl a))`);
+      const oldSecurity = securitySnapshot();
       const indexes = query(
         "select jsonb_agg(jsonb_build_array(indexname,indexname::regclass::oid) order by indexname) from pg_indexes where schemaname='public' and indexname in ('ai_chunks_embedding_ivfflat_idx','embedding_chunks_1024_cosine','embedding_chunks_1536_cosine')",
       );
@@ -67,6 +82,19 @@ describe("0413 additive upgrade from the deployed 0412 schema", () => {
       );
       query(migration);
       query(migration);
+      expect(securitySnapshot()).toBe(oldSecurity);
+      const delta = JSON.parse(
+        query(`select jsonb_build_object(
+        'tables',(select jsonb_agg(c.relname order by c.relname) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r' and not c.oid=any('${oldRelations}'::oid[])),
+        'indexes',(select jsonb_agg(c.relname order by c.relname) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='i' and not c.oid=any('${oldRelations}'::oid[])))`),
+      );
+      expect(delta.tables).toEqual([
+        "ai_embedding_operations",
+        "ai_embedding_price_reviews",
+        "ai_embedding_requests",
+      ]);
+      expect(delta.indexes).toHaveLength(9);
+      console.info("0413_CATALOG_DELTA", JSON.stringify(delta));
       expect(snapshot()).toBe(before);
       expect(query("select count(*) from public.ai_embedding_operations")).toBe("0");
       expect(query("select count(*) from public.ai_embedding_price_reviews")).toBe("0");

@@ -181,6 +181,33 @@ async function index(lease: OperationLease, from = 0) {
   await completeIndexOperation(lease, pool);
 }
 describe("0413 durable single-source operation + hard reservations", () => {
+  it("reuses confirmed same-source/same-space vectors after an explicitly approved configuration revision", async () => {
+    await approve();
+    await index(await claim());
+    expect(calls).toBe(3);
+    sql(
+      `update public.ai_embedding_configurations set version=gen_random_uuid() where organization_id='${GOV_ORG}'`,
+    );
+    configVersion = (
+      await pool.query(
+        "select version from public.ai_embedding_configurations where organization_id=$1",
+        [GOV_ORG],
+      )
+    ).rows[0].version;
+    const newOperation = await approve();
+    await index(await claim());
+    expect(calls).toBe(3);
+    expect(
+      sql(
+        `select reserved_requests||':'||reserved_tokens||':'||reserved_cost_microcents from public.ai_embedding_operations where id='${newOperation}'`,
+      ),
+    ).toBe("0:0:0");
+    expect(
+      sql(
+        `select count(*) from public.ai_embedding_requests where operation_id='${newOperation}' and reused_from_request_id is not null and reserved_tokens=0`,
+      ),
+    ).toBe("3");
+  });
   it("default denies HTTP without operation admission, including a direct wire caller", async () => {
     await expect(requestEmbedding(profile, "synthetic", "SVC-101", fetcher)).rejects.toThrow(
       "embedding_authorization_required",
