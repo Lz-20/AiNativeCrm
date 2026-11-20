@@ -1,0 +1,73 @@
+name: history-inspect-ci
+
+# Isolated tests only, including root POSIX/process faults. No VPS secrets,
+# installed controller, business release, workflow_dispatch or package push.
+on:
+  push:
+    branches: [fix/root-history-inspect]
+  pull_request:
+    paths:
+      - 'deploy/staging/**'
+      - 'tests/deployment/**'
+      - '.github/workflows/history-inspect-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  root-and-postgres:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    concurrency:
+      group: history-root-${{ github.event.pull_request.number || github.ref }}-${{ matrix.pg }}
+      cancel-in-progress: true
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ['15', '17']
+    env:
+      TEST_PG_MAJOR: ${{ matrix.pg }}
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact source and unchanged migration/catalog modules
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          mkdir -p history-evidence
+          for name in backup_verify catalog_policy schema_0412 migrate_0412 schema_0413 migrate_0413; do
+            git show 01df0cff2b21f16a1143dc2dd83a44dbbef1f80f:deploy/staging/$name.py | cmp - deploy/staging/$name.py
+          done
+          git diff --exit-code 01df0cff2b21f16a1143dc2dd83a44dbbef1f80f -- supabase lib/database.types.ts deploy/staging/ssh-entry.sh deploy/staging/compose.release.yml
+          sha256sum deploy/staging/{engine,history_inspect,backup_verify,catalog_policy,schema_0412,migrate_0412,schema_0413,migrate_0413}.py > history-evidence/root-files.sha256
+          git rev-parse HEAD > history-evidence/source-sha.txt
+      - name: All Python, real root paths/locks, lost pipe and transaction recovery
+        run: |
+          set -euo pipefail
+          sudo -n python3 -m unittest discover -s tests/deployment -p 'test_*.py' -v 2>&1 | tee history-evidence/python-root.log
+          python3 tests/staging_ci_test.py -v 2>&1 | tee history-evidence/client-existing.log
+          sudo -n python3 tests/deployment/schema_0412_files_test.py -v 2>&1 | tee history-evidence/files-0412.log
+          sudo -n python3 tests/deployment/schema_0413_files_test.py -v 2>&1 | tee history-evidence/files-0413.log
+      - name: Real PostgreSQL old/new protocol and production transaction adapter
+        run: |
+          set -euo pipefail
+          python3 tests/deployment/schema_0412_isolated.py | tee history-evidence/0412-postgres.log
+          python3 tests/deployment/schema_0413_isolated.py | tee history-evidence/0413-postgres.log
+          sudo -n env TEST_PG_MAJOR="$TEST_PG_MAJOR" python3 tests/deployment/schema_0413_adapter_test.py | tee history-evidence/0413-adapter.log
+      - name: Exact Supabase PostgreSQL17.6 Realtime dynamic policy remains valid
+        if: matrix.pg == '17'
+        run: |
+          set -euo pipefail
+          docker pull --platform linux/arm64 supabase/postgres:17.6.1.136@sha256:f371b5f3f2ac0a05703f33d6e6134515fb2498cab708fb948a0aeb7481467c00
+          sudo -n python3 tests/deployment/schema_0413_realtime.py | tee history-evidence/realtime-vendor.log
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
+        with:
+          name: history-root-pg${{ matrix.pg }}-${{ env.SOURCE_SHA }}
+          path: history-evidence/
+          if-no-files-found: error
+          retention-days: 30

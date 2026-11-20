@@ -43,6 +43,8 @@ SHA_RE = re.compile(r'[a-f0-9]{40}')
 HASH_RE = re.compile(r'[a-f0-9]{64}')
 DIGEST_RE = re.compile(r'sha256:[a-f0-9]{64}')
 UUID_RE = re.compile(r'[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}')
+TRANSACTION_RE = re.compile(r'\d{8}T\d{6}Z-[a-f0-9]{12}')
+HISTORY_MODULE_SHA256 = '08984f0165303689a1eb09c03a864d2433c199219f1dea9088cb2a59a16e4076'
 FIXED_ENV = {'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','HOME':'/root','LANG':'C.UTF-8','DOCKER_CONFIG':'/root/.docker','GIT_TERMINAL_PROMPT':'0'}
 CORE_PATHS = ('/api/v1/contacts?limit=20', '/api/v1/pipelines', '/api/v1/tasks')
 
@@ -69,7 +71,11 @@ def schema_fingerprint(tree_bytes): return digest(tree_bytes)
 def validate_request(value):
     need(type(value) is dict, 'request_object_required')
     operation = value.get('operation')
-    need(operation in ('status','deploy','rollback'), 'operation_not_allowed')
+    need(operation in ('status','deploy','rollback','inspect'), 'operation_not_allowed')
+    if operation == 'inspect':
+        need(set(value) == {'operation','transaction'} and matches(TRANSACTION_RE,value['transaction']),
+             'fixed_transaction_inspection_only')
+        return value
     if operation != 'deploy':
         need(set(value) == {'operation'}, 'unexpected_request_fields')
         return value
@@ -123,13 +129,17 @@ class ReleaseEngine:
 
     def rollout(self,release):
         for service in SERVICES:
+            getattr(self.rt,'history_stage',lambda _phase: None)('updating-'+service)
             self.rt.update(service,release)
             self.rt.wait_healthy(service,release)
-        return self.rt.core_probe()
+            getattr(self.rt,'history_stage',lambda _phase: None)('healthy-'+service)
+        health=self.rt.core_probe()
+        getattr(self.rt,'history_stage',lambda _phase: None)('core-healthy')
+        return health
 
     def run(self,request):
         validate_request(request)
-        if request['operation']=='status':return self._run(request)
+        if request['operation'] in ('status','inspect'):return self._run(request)
         event={'operation':request['operation'],'sha':request.get('sha'),
                'images':request.get('images'),'at':utcnow()}
         self.rt.audit({**event,'phase':'requested'})
@@ -143,6 +153,7 @@ class ReleaseEngine:
         state=self.rt.load_state()
         operation=request['operation']
         if operation=='status':return self.rt.status(state)
+        if operation=='inspect':return self.rt.history_inspect(request)
         transition=getattr(self.rt,'schema_context',lambda _state: None)(state)
         schema=transition['database_schema'] if transition else state.get('approved_schema_sha256')
         def compatible(release):
@@ -164,14 +175,17 @@ class ReleaseEngine:
             target=copy.deepcopy(state['current'] if state.get('pending') else state.get('previous'))
             need(target is not None,'no_previous_release')
             compatible(target)
-        self.rt.ensure_backup(state)
+        getattr(self.rt,'history_preflight',lambda *_args: None)(state,request,target)
+        backup_proof=self.rt.ensure_backup(state)
         self.rt.verify_current(state,recovery=operation=='rollback')
         before=self.rt.boundary()
         target['image_ids']=self.rt.prepare_images(target,use_cached=operation=='rollback')
         prior=copy.deepcopy(state['current'])
         txid=dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'-'+uuid.uuid4().hex[:12]
+        getattr(self.rt,'history_prepare',lambda *_args: None)(state,request,target,prior,txid,backup_proof)
         state['pending']={'transaction':txid,'operation':operation,'target':target,'prior':prior,'started_at':utcnow()}
         self.rt.save_state(state)
+        getattr(self.rt,'history_stage',lambda _phase: None)('started')
         self.rt.audit({'transaction':txid,'phase':'started','operation':operation,'sha':target['sha'],'images':target['images'],'at':utcnow()})
         try:
             health=self.rollout(target)
@@ -187,14 +201,17 @@ class ReleaseEngine:
                 self.rt.verify_boundary(before)
             except BaseException:
                 self.rt.audit({'transaction':txid,'phase':'rollback_required','at':utcnow()})
+                getattr(self.rt,'history_complete',lambda *_args: None)('rollback_required',state)
                 raise Failure('deployment_failed_rollback_required') from None
             state['pending']=None
             self.rt.save_state(state)
             self.rt.audit({'transaction':txid,'phase':'rolled_back','sha':prior['sha'],'images':prior['images'],'at':utcnow()})
+            getattr(self.rt,'history_complete',lambda *_args: None)('rolled_back',state)
             raise Failure('deployment_failed_rolled_back') from None
         state.update(current=target,previous=prior,pending=None,last_success_at=utcnow())
         self.rt.save_state(state)
         self.rt.audit({'transaction':txid,'phase':'succeeded','operation':operation,'sha':target['sha'],'images':target['images'],'at':utcnow()})
+        getattr(self.rt,'history_complete',lambda *_args: None)('succeeded',state)
         return {'ok':True,'result':operation+'ed' if operation=='deploy' else 'rolled_back','sha':target['sha'],
                 'schema_sha256':schema,'application_schema_sha256':target['schema_sha256'],
                 'images':public_images(target),'health':health,'transaction':txid}
@@ -285,6 +302,25 @@ class RootRuntime:
     def load_state(self):return read_root_json(STATE/'state.json')
     def save_state(self,state):atomic_json(STATE/'state.json',state)
     def is_paused(self):return (STATE/'paused').exists()
+
+    def history_module(self):
+        path=INSTALL/'history_inspect.py'
+        secure_path(path,mode=0o644)
+        need(digest(path.read_bytes())==HISTORY_MODULE_SHA256,'installed_history_module_hash')
+        spec=importlib.util.spec_from_file_location('installed_history_inspect',path)
+        value=importlib.util.module_from_spec(spec);spec.loader.exec_module(value)
+        return value
+
+    def history_inspect(self,request):return self.history_module().inspect(self,request)
+    def history_preflight(self,state,request,target):
+        if request['operation']=='deploy':
+            need(self.git('rev-parse','refs/remotes/origin/main').decode().strip()==request['sha'],
+                 'candidate_must_be_current_main')
+        try:self.history_module().preflight(self,state,request,target)
+        except ValueError:raise Failure('trusted_history_or_human_review_required') from None
+    def history_prepare(self,*args):self.history_module().prepare(self,*args)
+    def history_stage(self,phase):self.history_module().stage(self,phase)
+    def history_complete(self,phase,state):self.history_module().complete(self,phase,state)
 
     def schema_context(self,state):
         marker=STATE/'schema-0412'/'journal.json'
@@ -667,6 +703,11 @@ def main():
     try:request=decode_request(sys.stdin.buffer.read(4097))
     finally:signal.alarm(0)
     runtime=RootRuntime()
+    if request['operation']=='inspect':
+        # The read-only module uses existing, O_RDONLY/non-creating lock files;
+        # it reports held/unknown rather than pretending the remote was stopped.
+        print(json.dumps(runtime.history_inspect(request),sort_keys=True))
+        return
     import fcntl
     lock=STATE/'deployment.lock'
     if lock.exists():secure_path(lock,mode=0o600)
