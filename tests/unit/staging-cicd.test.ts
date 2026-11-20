@@ -75,6 +75,13 @@ describe("staging: release limitado ao código aprovado e aos três serviços", 
     expect(ler("scripts/staging_release_guard.py")).toContain(
       "prior_remote_outcome_requires_operator_audit",
     );
+    expect(() =>
+      execFileSync(
+        process.platform === "win32" ? "python" : "python3",
+        ["tests/staging_history_test.py"],
+        { stdio: "pipe" },
+      ),
+    ).not.toThrow();
   });
 
   it("nenhuma action externa nova usa ref mutável nem build recebe segredo de servidor", () => {

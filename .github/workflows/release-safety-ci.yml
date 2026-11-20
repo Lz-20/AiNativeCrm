@@ -22,6 +22,7 @@ jobs:
         run: |
           python3 tests/staging_ci_test.py -v
           python3 tests/staging_safety_test.py -v
+          python3 tests/staging_history_test.py -v
           pnpm exec vitest run lib/impersonate/end-support.test.ts
       - name: Real Chromium slow bodies, failed requests, page close and concurrent cleanup
         run: |
