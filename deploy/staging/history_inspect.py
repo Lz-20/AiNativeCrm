@@ -29,6 +29,8 @@ AC8 = 'ac8de4bb963d3c46729073ce126dc2a2591b964c'
 EA = 'ea26ee4fb38a65cb15313ab002934238b6324ff8'
 SCHEMA = '37974846957f850f051b020f23493586ce49631aacc66a04bbdbb93b8f708fa3'
 EA_SCHEMA = 'a2c444e558672a6a4b5790ec3b0bcc2be76838f291e6d1be568e0121380f2c20'
+PRE_EA = 'c5919aac3d3e670621ad3409e44c13c44ae8ea0e'
+BASE_SCHEMA = '6780b2fb6179943f3238834fc4f1ef490a02a567309e73a2fdbc131c9791bc98'
 SYSTEM = '7701258112182636578'
 STATIC_CATALOG = '245b598df8270a2248b7d992e539da62a78f1fc7c0af92d8ac593cdaf9f64506'
 LEGACY_BYTES = 14254
@@ -180,7 +182,7 @@ def transaction(records, txid):
          'ambiguous_request_interval')
     need(timestamp(request['at']) < timestamp(start['at']) < timestamp(end['at']), 'transaction_order')
     release = public_release({'kind': 'git', 'sha': start['sha'], 'images': start['images'],
-                              'schema_sha256': EA_SCHEMA if start['sha'] == EA else SCHEMA})
+                              'schema_sha256': {EA: EA_SCHEMA, PRE_EA: BASE_SCHEMA}.get(start['sha'], SCHEMA)})
     return {'transaction': txid, 'operation': start['operation'], 'phase': 'succeeded',
             'request_sha256': digest(canonical(request)), 'requested_at': request['at'],
             'started_at': start['at'], 'completed_at': end['at'], 'release': release,
@@ -273,6 +275,26 @@ def review(basis_hash):
     need(timestamp('2026-11-20T02:13:49.580630+00:00') <= when <= dt.datetime.now(dt.timezone.utc),
          'human_review_time')
     return {'status': 'reviewed', 'approval_sha256': digest(canonical(value))}
+
+
+def prior_terminals(raw, records):
+    """Older successful Actions still need their original result/status. This
+    bounded list supplies ONLY the corresponding root terminal, not a waiver
+    for missing/failed Actions or a new arbitrary accepted-cohort registry.
+    """
+    prefix = [json_value(line) for line in raw[:LEGACY_BYTES].splitlines()]
+    result = []
+    for row in prefix:
+        if row.get('phase') != 'started' or row.get('sha') not in (EA, PRE_EA):
+            continue
+        try:
+            value, _ = transaction(records, row['transaction'])
+            if timestamp(value['completed_at']) < timestamp('2026-11-20T02:07:45.117468+00:00'):
+                result.append(value)
+        except (ValueError, KeyError, TypeError):
+            continue
+    need(len(result) <= 128, 'prior_terminal_limit')
+    return result
 
 
 def read_only_runtime(rt):
@@ -410,7 +432,8 @@ def inspect(rt, request):
             result.update(ok=True, status='authenticated', record=selected, incident=basis,
                           evidence_sha256=basis_hash, review=assessment, database=current,
                           root_state_sha256=digest(read(ROOT / 'state.json')),
-                          audit_sha256=digest(raw), release_preparation_allowed=assessment['status'] == 'reviewed')
+                          audit_sha256=digest(raw), prior_terminals=prior_terminals(raw, records),
+                          release_preparation_allowed=assessment['status'] == 'reviewed')
     except (Exception,):
         # No exception message, raw audit, credential, customer row or path leaks.
         result.update(ok=False, status='unknown', reason='evidence_missing_conflicting_or_untrusted')
