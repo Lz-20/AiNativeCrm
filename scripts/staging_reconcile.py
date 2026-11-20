@@ -1,4 +1,4 @@
-"""Independent completed-run observer. STATUS ONLY; never deploy, rollback or kill."""
+"""Independent observer. Fixed STATUS/INSPECT only; never deploy, rollback or kill."""
 import argparse
 import io
 import json
@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import zipfile
 import hashlib
+import staging_history
 
 import staging_release_guard as gate
 from staging_delivery import client, save
@@ -70,6 +71,29 @@ def observe(run_id, output, *, read=gate.api, transport=client.ssh_request):
         # be accepted; no inferred previous or automatic recovery submission.
         if result["outcome"] == "applied_with_receipt" and run["conclusion"] == "success":
             result["outcome"] = "verified_original_delivery"
+        if result['outcome'] != 'verified_original_delivery':
+            selector = staging_history.DEPLOY if run_id == staging_history.LEGACY_RUN else result.get('transaction') or 'latest'
+            try:
+                proof = staging_history.fetch(transport=transport, transaction=selector,
+                    evidence_output=Path(output).parent / 'root-inspection.json')
+                result['root_inspection_status'] = 'authenticated'
+                result['root_evidence_sha256'] = proof['evidence_sha256']
+                root_record = proof['record']
+                if all(root_record['release'][k] == release[k] for k in ('sha', 'schema_sha256', 'images')):
+                    result['transaction'] = root_record['transaction']
+                    result['outcome'] = 'root_transaction_confirmed_actions_evidence_requires_review'
+                if run_id == staging_history.LEGACY_RUN:
+                    # This classifies the FAILED release as safely recovered;
+                    # never relabel cancelled Actions as a successful release.
+                    gate.need(all(proof['incident']['deploy']['release'][k] == release[k]
+                                  for k in ('sha', 'schema_sha256', 'images')), 'historical_root_request_mismatch')
+                    result.update(transaction=staging_history.DEPLOY, recovery_transaction=staging_history.RECOVERY,
+                        outcome='historical_chain_authenticated_human_review_required')
+                    if proof['review']['status'] == 'reviewed':
+                        result['outcome'] = 'historical_failure_recovered_after_root_review'
+                result['allow_new_deploy'] = False
+            except (OSError, ValueError, KeyError, TypeError, client.subprocess.SubprocessError):
+                result['root_inspection_status'] = 'unknown_or_busy_or_unavailable'
     save(output, result)
     return result
 
@@ -80,7 +104,7 @@ def main():
     args = parser.parse_args()
     gate.need(os.environ.get("GITHUB_REPOSITORY") == gate.REPOSITORY, "trusted_observer_only")
     value = observe(args.run_id, args.output)
-    if value["outcome"] not in ("no_deploy_job_started", "verified_original_delivery"):
+    if value["outcome"] not in ("no_deploy_job_started", "verified_original_delivery", "historical_failure_recovered_after_root_review"):
         raise SystemExit("remote outcome needs protected operator audit; no new deploy or guessed rollback")
 
 

@@ -135,6 +135,13 @@ def ssh_request(request, output, *, timeout_seconds=1800):
     response = json.loads(completed.stdout)
     if not isinstance(response, dict):
         raise ValueError("Server returned an invalid release response")
+    if json.loads(payload).get("operation") == "inspect":
+        # Fresh authenticated root transport only; never import an Artifact or
+        # arbitrary application JSON as a trusted root receipt.
+        from staging_history import validate
+        response = validate(response, json.loads(payload)["transaction"])
+        write_json(output, response)
+        return
     allowed = {"sha", "schema_sha256", "images", "backup_verified", "rollback_verified",
                "auto_deploy_enabled", "paused", "result", "health", "operation", "timestamp",
                "ok", "project", "recovery_required", "transaction", "application_schema_sha256"}

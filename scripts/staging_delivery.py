@@ -8,6 +8,7 @@ import signal
 import tempfile
 
 import staging_release_guard as gate
+import staging_history
 
 spec = importlib.util.spec_from_file_location("staging_fixed_client", Path(__file__).with_name("staging-ci.py"))
 client = importlib.util.module_from_spec(spec)
@@ -38,10 +39,12 @@ def deliver(request, quality, run_id, journal, *, read=gate.api, transport=clien
     validate_request(request)
     gate.check_receipt(request["sha"], quality)
     gate.need(not Path(journal).exists(), "delivery_already_claimed")
-    # Both the live independent CI and the prior transaction history precede
-    # even the status probe, never merely a copied old green artifact.
+    # Live CI comes first; history is authenticated over read-only root inspect.
+    # Neither a copied green artifact nor inspection is deployment authority.
     gate.check_quality(request["sha"], str(journal) + ".quality.json", read=read)
-    history = gate.delivery_history(request["sha"], run_id, read)
+    history = gate.delivery_history(request["sha"], run_id, read,
+                                   inspect_root=lambda: staging_history.fetch(transport=transport,
+                                       evidence_output=str(journal) + '.root-inspection.json'))
     record = {"format": 1, "sha": request["sha"], "request": request, "run_id": run_id,
               "phase": "prepared", "transaction": None, "before": None,
               "automatic_retry": False, "automatic_rollback": False, "prior_receipts": history}

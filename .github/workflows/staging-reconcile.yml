@@ -34,7 +34,7 @@ jobs:
           # Execute only trusted main code; never code downloaded from artifacts.
           ref: main
           persist-credentials: false
-      - name: Reconcile with fixed read-only status, never deploy or rollback
+      - name: Reconcile with fixed read-only status and root inspect, never deploy or rollback
         run: python3 scripts/staging_reconcile.py --run-id "$SOURCE_RUN_ID" --output reconciliation.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
@@ -43,5 +43,6 @@ jobs:
           path: |
             reconciliation.json
             remote-status.json
+            root-inspection.json
           if-no-files-found: warn
           retention-days: 90

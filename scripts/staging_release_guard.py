@@ -192,8 +192,68 @@ def terminal_result(run, read=api):
     return {"run_id": run["id"], "sha": run["head_sha"], "transaction": result["transaction"]}
 
 
-def delivery_history(sha, current_run, read=api):
-    """Called inside the existing single-VPS concurrency group, BEFORE any SSH.
+def original_results(run, read=api, *, manifest=False):
+    """Legacy successful attempts may have a partial earlier-attempt artifact.
+    Authenticate every candidate; only a unique complete result from the FINAL
+    attempt interval can qualify. This is not latest-name/green-result guessing.
+    """
+    name = 'staging-release-' + run['head_sha'] if manifest else 'staging-result-' + str(run['id'])
+    candidates = [a for a in paged(f"actions/runs/{run['id']}/artifacts", 'artifacts', read)
+                  if a['name'] == name and not a.get('expired')]
+    need(len(candidates) <= 5, 'legacy_artifact_ambiguity')
+    results = []
+    for a in candidates:
+        def instant(value):return dt.datetime.fromisoformat(value.replace('Z', '+00:00'))
+        need(a['size_in_bytes'] <= 1024 * 1024, 'legacy_artifact_size')
+        if not (instant(run['run_started_at']) <= instant(a['created_at']) <= instant(run['updated_at'])):
+            continue
+        raw = read(f"actions/artifacts/{a['id']}/zip", binary=True)
+        import hashlib
+        need('sha256:' + hashlib.sha256(raw).hexdigest() == a['digest'], 'legacy_artifact_integrity')
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+            required = ['release.json'] if manifest else ['deployment.json', 'status-after.json']
+            if not set(required) <= set(archive.namelist()):continue
+            value = {}
+            for item in required:
+                need(archive.getinfo(item).file_size <= 65536, 'legacy_result_size')
+                value[item] = json.loads(archive.read(item))
+        results.append(value)
+    need(len(results) == 1, 'legacy_complete_original_result_required')
+    return results[0]
+
+
+def reviewed_history(run, root, read=api):
+    import staging_history as history
+    history.require_review(root)
+    if run['id'] == history.LEGACY_RUN:
+        need(run['head_sha'] == history.AC8 and run.get('conclusion') == 'cancelled'
+             and run.get('run_attempt') == 1, 'fixed_cancelled_incident_only')
+        original = original_results(run, read, manifest=True)['release.json']
+        deploy = root['incident']['deploy'];recovery = root['incident']['recovery']
+        need(set(original) == {'operation', 'trigger', 'sha', 'schema_sha256', 'images'}
+             and original['operation'] == 'deploy' and original['trigger'] == 'push'
+             and all(original[k] == deploy['release'][k] for k in ('sha', 'schema_sha256', 'images')),
+             'original_cancelled_request_root_mismatch')
+        return {'run_id': run['id'], 'sha': run['head_sha'], 'transaction': history.DEPLOY,
+                'recovery_transaction': history.RECOVERY, 'classification': 'failed_release_recovered_not_ci_accepted',
+                'restored_sha': recovery['release']['sha'], 'evidence_sha256': root['evidence_sha256'],
+                'human_review_sha256': root['review']['approval_sha256']}
+    need(run['id'] < history.LEGACY_RUN and run.get('conclusion') == 'success', 'unreviewed_other_incident')
+    original = original_results(run, read)
+    result, status = original['deployment.json'], original['status-after.json']
+    need(result.get('ok') is True and status.get('ok') is True and status.get('recovery_required') is False
+         and result.get('sha') == run['head_sha'] and all(result.get(k) == status.get(k) for k in ('sha', 'schema_sha256', 'images')),
+         'legacy_original_result_not_success')
+    terminals = [r for r in root['prior_terminals'] if r['transaction'] == result.get('transaction')]
+    need(len(terminals) == 1 and all(result.get(k) == terminals[0]['release'][k] for k in ('sha', 'schema_sha256', 'images')),
+         'legacy_result_root_terminal_mismatch')
+    return {'run_id': run['id'], 'sha': run['head_sha'], 'transaction': result['transaction'],
+            'classification': 'original_success_and_pinned_root_terminal', 'evidence_sha256': root['evidence_sha256']}
+
+
+def delivery_history(sha, current_run, read=api, *, inspect_root=None):
+    """Inside single-VPS concurrency. CI precedes deployment; history may read
+    the fixed root inspect endpoint but can never submit deploy/rollback.
 
     A deploy job that started is a conservative durable claim, even if its
     Runner died before uploading a journal. No automatic retry/rollback escape.
@@ -206,6 +266,7 @@ def delivery_history(sha, current_run, read=api):
          and current.get("event") in ("push", "workflow_dispatch"), "delivery_rerun_or_sha")
     runs = paged("actions/workflows/staging-release.yml/runs?branch=main", "workflow_runs", read)
     receipts = []
+    trusted_root = None
     for run in runs:
         if run["id"] == current_run:
             continue
@@ -219,7 +280,20 @@ def delivery_history(sha, current_run, read=api):
              and run.get("event") in ("push", "workflow_dispatch"), "prior_delivery_identity")
         need(run.get("head_sha") != sha, "same_sha_delivery_already_attempted")
         result = terminal_result(run, read)
-        need(result is not None, "prior_remote_outcome_requires_operator_audit")
+        if result is None:
+            # Only the explicitly reviewed legacy incident and ORIGINAL earlier
+            # successful runs are eligible. Unknown future incidents stay shut.
+            need(run['id'] == 44655810765 or (run['id'] < 44655810765 and run.get('conclusion') == 'success'),
+                 'prior_remote_outcome_requires_operator_audit')
+            if trusted_root is None:
+                import staging_history
+                try:
+                    trusted_root = (inspect_root or staging_history.fetch)()
+                    staging_history.require_review(trusted_root)
+                except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
+                    code = 'root_history_requires_independent_human_review' if isinstance(error, staging_history.HistoryError) and str(error) == 'root_history_requires_independent_human_review' else 'root_history_unknown_or_untrusted'
+                    raise Blocked(code) from None
+            result = reviewed_history(run, trusted_root, read)
         receipts.append(result)
     return receipts
 
@@ -263,7 +337,9 @@ def main():
     elif args.operation == "receipt":
         check_receipt(args.sha, json.loads(Path(args.input).read_text(encoding="utf-8")))
     else:
-        Path(args.output).write_text(json.dumps(delivery_history(args.sha, args.run_id), indent=2), encoding="utf-8")
+        import staging_history
+        Path(args.output).write_text(json.dumps(delivery_history(args.sha, args.run_id,
+            inspect_root=lambda: staging_history.fetch(evidence_output='root-inspection.json')), indent=2), encoding="utf-8")
 
 
 if __name__ == "__main__":

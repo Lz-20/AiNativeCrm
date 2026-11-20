@@ -275,7 +275,7 @@ class Observer(unittest.TestCase):
                 if busy:raise ValueError('legacy root deployment lock is busy')
                 Path(output).write_text(json.dumps(AFTER))
             with tempfile.TemporaryDirectory() as tmp:value=observer.observe(88,Path(tmp)/'reconciliation.json',read=read,transport=transport)
-            self.assertEqual(calls,[{"operation":"status"}]);self.assertIsNone(value['transaction'])
+            self.assertEqual(calls,[{"operation":"status"},{"operation":"inspect","transaction":"latest"}]);self.assertIsNone(value['transaction'])
             self.assertFalse(value['allow_new_deploy']);self.assertFalse(value['automatic_rollback'])
             self.assertEqual(value['outcome'],'remote_unknown_or_running' if busy else 'applied_requires_operator_audit')
 
