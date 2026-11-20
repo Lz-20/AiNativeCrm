@@ -64,6 +64,14 @@ const DIR = join(process.cwd(), ".github/workflows");
  * que desliga um job de entrega fica visível em code review.
  */
 const GATILHO_ESPERADO: Record<string, { condicao: string | null; efeito: string }> = {
+  "release-safety-ci.yml::transport-and-browser": {
+    condicao: null,
+    efeito: "Exige o head exato em Linux para CI independente, transporte/cancelamento sintético e respostas reais do Chromium, sem VPS ou modelos.",
+  },
+  "staging-reconcile.yml::inspect": {
+    condicao: "github.repository == 'Lz-20/AiNativeCrm' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository",
+    efeito: "Observador independente somente de status da main confiável; resultado desconhecido exige auditoria e nunca reenvia deploy ou rollback.",
+  },
   "rag-operations-isolated.yml::isolated-postgres": {
     condicao: null,
     efeito: "Executa SQL real e receptor HTTP sem provedores pagos em PG15/17 no head exato; não tem secrets, publicação de imagens ou acesso à VPS.",
@@ -100,6 +108,10 @@ const GATILHO_ESPERADO: Record<string, { condicao: string | null; efeito: string
   "staging-release.yml::images": {
     condicao: "needs.prepare.outputs.operation == 'build' || needs.prepare.outputs.operation == 'deploy'",
     efeito: "Constrói os três artefatos ARM64 em operações de publicação, sem tocar a VPS.",
+  },
+  "staging-release.yml::quality-authorization": {
+    condicao: "needs.prepare.outputs.operation == 'build' || needs.prepare.outputs.operation == 'deploy'",
+    efeito: "Exige cada Job independente de ci/e2e/perf no mesmo SHA antes de autorizar manifest, inclusive se um workflow_call duplicado ficou verde.",
   },
   "staging-release.yml::manifest": {
     condicao: null,

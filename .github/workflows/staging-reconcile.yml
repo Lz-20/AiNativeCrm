@@ -1,0 +1,47 @@
+name: staging-reconcile
+
+# Independent observer survives the original Runner's cancellation. No mutation
+# operation, workflow_dispatch, artifact code execution or expanded SSH command.
+on:
+  workflow_run:
+    workflows: [staging-release]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  inspect:
+    if: github.repository == 'Lz-20/AiNativeCrm' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: staging
+    concurrency:
+      group: ainativecrm-staging-vps
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+      VPS_PORT: ${{ vars.VPS_PORT || '22' }}
+      SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Execute only trusted main code; never code downloaded from artifacts.
+          ref: main
+          persist-credentials: false
+      - name: Reconcile with fixed read-only status, never deploy or rollback
+        run: python3 scripts/staging_reconcile.py --run-id "$SOURCE_RUN_ID" --output reconciliation.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
+        with:
+          name: staging-reconciliation-${{ github.event.workflow_run.id }}
+          path: |
+            reconciliation.json
+            remote-status.json
+          if-no-files-found: warn
+          retention-days: 90

@@ -96,7 +96,7 @@ def validate_destination(host, user, port):
         raise ValueError("Invalid VPS_PORT")
 
 
-def ssh_request(request, output):
+def ssh_request(request, output, *, timeout_seconds=1800):
     host, user = os.environ.get("VPS_HOST", ""), os.environ.get("VPS_USER", "")
     port = os.environ.get("VPS_PORT", "22") or "22"
     validate_destination(host, user, port)
@@ -125,7 +125,7 @@ def ssh_request(request, output):
             "-o", "ForwardAgent=no", "-o", "ClearAllForwardings=yes",
             "-o", "ConnectTimeout=20", "-o", "ServerAliveInterval=30",
             "-o", "ServerAliveCountMax=4", f"{user}@{host}", "ainativecrm-deploy"
-        ], input=payload, capture_output=True, timeout=1800, check=False)
+        ], input=payload, capture_output=True, timeout=timeout_seconds, check=False)
     # Do not relay SSH stderr or arbitrary server output into Actions logs/artifacts.
     # Full deployment logs remain in the protected server release directory.
     if completed.returncode:
@@ -137,7 +137,7 @@ def ssh_request(request, output):
         raise ValueError("Server returned an invalid release response")
     allowed = {"sha", "schema_sha256", "images", "backup_verified", "rollback_verified",
                "auto_deploy_enabled", "paused", "result", "health", "operation", "timestamp",
-               "ok", "project", "recovery_required", "transaction"}
+               "ok", "project", "recovery_required", "transaction", "application_schema_sha256"}
     write_json(output, {k: v for k, v in response.items() if k in allowed})
 
 

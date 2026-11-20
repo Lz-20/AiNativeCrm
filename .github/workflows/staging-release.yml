@@ -63,6 +63,29 @@ jobs:
       pull-requests: read
     uses: ./.github/workflows/e2e.yml
 
+  quality-authorization:
+    needs: [prepare, ci-checks, build-check, e2e-check]
+    if: needs.prepare.outputs.operation == 'build' || needs.prepare.outputs.operation == 'deploy'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Require EVERY independent main quality job at this exact SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/staging_release_guard.py quality --sha "$GITHUB_SHA" --wait-seconds 2400 --output quality.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: staging-quality-${{ github.sha }}
+          path: quality.json
+          if-no-files-found: error
+          retention-days: 90
+
   images:
     needs: prepare
     if: needs.prepare.outputs.operation == 'build' || needs.prepare.outputs.operation == 'deploy'
@@ -131,7 +154,7 @@ jobs:
   manifest:
     # A published image alone is not an accepted release. These are the existing
     # real type/lint/unit/shell/DB/build/browser gates, without production secrets.
-    needs: [prepare, images, ci-checks, build-check, e2e-check]
+    needs: [prepare, images, ci-checks, build-check, e2e-check, quality-authorization]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -143,6 +166,11 @@ jobs:
           pattern: staging-image-*
           path: image-records
           merge-multiple: true
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: staging-quality-${{ github.sha }}
+      - name: Bind independent quality receipt before release authorization
+        run: python3 scripts/staging_release_guard.py receipt --sha "$GITHUB_SHA" --input quality.json
       - name: Assemble the verified release request
         env:
           SCHEMA: ${{ needs.prepare.outputs.schema }}
@@ -163,6 +191,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     environment: staging
+    permissions:
+      contents: read
+      actions: read
     concurrency:
       group: ainativecrm-staging-vps
       cancel-in-progress: false
@@ -172,6 +203,7 @@ jobs:
       VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
       VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
       VPS_PORT: ${{ vars.VPS_PORT || '22' }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -179,20 +211,21 @@ jobs:
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           name: staging-release-${{ github.sha }}
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: staging-quality-${{ github.sha }}
       - name: Check the last accepted schema and the server deployment gate
         env:
           SCHEMA: ${{ needs.prepare.outputs.schema }}
           TRIGGER: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          python3 scripts/staging-ci.py request status --output status-request.json
-          python3 scripts/staging-ci.py ssh-request --request status-request.json --output status-before.json
-          python3 scripts/staging-ci.py check-status --status status-before.json --schema "$SCHEMA" --trigger "$TRIGGER"
+          python3 scripts/staging_release_guard.py quality --sha "$GITHUB_SHA" --output quality-current.json
+          python3 scripts/staging_release_guard.py history --sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --output delivery-history.json
       - name: Deploy only app, worker and scheduler through the restricted entry
         run: |
           set -euo pipefail
-          python3 scripts/staging-ci.py ssh-request --request release.json --output deployment.json
-          python3 scripts/staging-ci.py ssh-request --request status-request.json --output status-after.json
+          python3 scripts/staging_delivery.py --request release.json --quality quality.json --run-id "$GITHUB_RUN_ID" --journal delivery-journal.json
           python3 scripts/staging-ci.py verify-release --request release.json --status status-after.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
@@ -202,6 +235,9 @@ jobs:
             status-before.json
             status-after.json
             deployment.json
+            delivery-journal.json
+            status-reconcile.json
+            delivery-history.json
           if-no-files-found: ignore
           retention-days: 90
 
@@ -229,6 +265,12 @@ jobs:
           OPERATION: ${{ needs.prepare.outputs.operation }}
         run: |
           set -euo pipefail
+          # Legacy status exposes neither previous identity nor acceptance audit.
+          # Never blindly roll to previous (currently the unaccepted ac8de4b).
+          if [ "$OPERATION" = rollback ]; then
+            echo 'Rollback requires independent protected target/schema/budget review; no automatic previous rollback.' >&2
+            exit 1
+          fi
           python3 scripts/staging-ci.py request "$OPERATION" --output operation.json
           python3 scripts/staging-ci.py ssh-request --request operation.json --output operation-result.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
