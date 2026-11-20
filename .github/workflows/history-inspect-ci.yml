@@ -52,6 +52,24 @@ jobs:
           python3 tests/staging_ci_test.py -v 2>&1 | tee history-evidence/client-existing.log
           sudo -n python3 tests/deployment/schema_0412_files_test.py -v 2>&1 | tee history-evidence/files-0412.log
           sudo -n python3 tests/deployment/schema_0413_files_test.py -v 2>&1 | tee history-evidence/files-0413.log
+      - name: Post-commit negative control rejects altered original audit bytes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          path=Path('deploy/staging/history_inspect.py')
+          original=path.read_bytes()
+          try:
+              text=original.decode().replace(' and digest(raw[:LEGACY_BYTES]) == LEGACY_HASH', '')
+              assert text.encode()!=original
+              path.write_bytes(text.encode())
+              result=subprocess.run(['sudo','-n','python3','tests/deployment/test_history_inspect.py','RootHistoryTests.test_pinned_audit_cannot_be_missing_rewritten_truncated_or_appended_conflicting','-v'],capture_output=True)
+              Path('history-evidence/negative-control.log').write_bytes(result.stdout+result.stderr)
+              assert result.returncode!=0, 'removing the byte-integrity check MUST turn the behavior test red'
+          finally:
+              path.write_bytes(original)
+          assert path.read_bytes()==original
+          PY
       - name: Real PostgreSQL old/new protocol and production transaction adapter
         run: |
           set -euo pipefail
@@ -64,6 +82,7 @@ jobs:
           set -euo pipefail
           docker pull --platform linux/arm64 supabase/postgres:17.6.1.136@sha256:f371b5f3f2ac0a05703f33d6e6134515fb2498cab708fb948a0aeb7481467c00
           sudo -n python3 tests/deployment/schema_0413_realtime.py | tee history-evidence/realtime-vendor.log
+          sudo -n python3 tests/deployment/catalog_isolated_test.py | tee history-evidence/catalog-full-dump-restore.log
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:

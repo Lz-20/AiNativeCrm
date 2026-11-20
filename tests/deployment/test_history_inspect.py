@@ -177,7 +177,8 @@ class RootHistoryTests(unittest.TestCase):
 
     def test_pinned_audit_cannot_be_missing_rewritten_truncated_or_appended_conflicting(self):
         path = self.f.root / 'deployments.jsonl';original = path.read_bytes()
-        for bad in (b'', original[:-1], original.replace(b'succeeded', b'cancelled')):
+        for bad in (b'', original[:-1], original.replace(b'succeeded', b'cancelled'),
+                    original.replace(b'"operation":"deploy"', b'"operation": "deploy"', 1)):
             self.f.put(path, bad, raw=True);self.assertEqual(self.f.inspect()['status'], 'unknown')
         self.f.put(path, original + h.canonical(self.f.records[1]) + b'\n', raw=True)
         self.assertEqual(self.f.inspect()['status'], 'unknown')
