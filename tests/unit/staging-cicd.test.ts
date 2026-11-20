@@ -46,9 +46,42 @@ describe("staging: release limitado ao código aprovado e aos três serviços", 
       expect(ler(`.github/workflows/${file}`)).toMatch(/^  workflow_call:/m);
       expect(workflow).toContain(`uses: ./.github/workflows/${file}`);
     }
-    expect(workflow).toContain("needs: [prepare, images, ci-checks, build-check, e2e-check]");
-    expect(workflow).toContain("check-status");
+    expect(workflow).toContain(
+      "needs: [prepare, images, ci-checks, build-check, e2e-check, quality-authorization]",
+    );
+    expect(ler("scripts/staging_delivery.py")).toContain("client.check_status");
     expect(workflow).toContain("verify-release");
+  });
+
+  it("recusa CI independente falho antes de enviar deploy e mantém cancelamento independente", () => {
+    expect(() =>
+      execFileSync(
+        process.platform === "win32" ? "python" : "python3",
+        ["tests/staging_safety_test.py"],
+        { stdio: "pipe" },
+      ),
+    ).not.toThrow();
+    const observer = ler(".github/workflows/staging-reconcile.yml");
+    expect(observer).toContain("workflow_run:");
+    expect(observer).toContain("workflows: [staging-release]");
+    expect(observer).toContain("ref: main");
+    expect(observer).not.toContain("workflow_dispatch:");
+    expect(observer).not.toContain("ssh-request --request release.json");
+    const delivery = ler("scripts/staging_delivery.py");
+    expect(delivery.indexOf("gate.check_quality(")).toBeLessThan(
+      delivery.indexOf("transport(payload"),
+    );
+    expect(delivery).toContain("operator_reconciliation_required");
+    expect(ler("scripts/staging_release_guard.py")).toContain(
+      "prior_remote_outcome_requires_operator_audit",
+    );
+    expect(() =>
+      execFileSync(
+        process.platform === "win32" ? "python" : "python3",
+        ["tests/staging_history_test.py"],
+        { stdio: "pipe" },
+      ),
+    ).not.toThrow();
   });
 
   it("nenhuma action externa nova usa ref mutável nem build recebe segredo de servidor", () => {

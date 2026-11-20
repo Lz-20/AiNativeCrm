@@ -1,0 +1,37 @@
+name: release-safety-ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  transport-and-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/preparar-node
+        timeout-minutes: 5
+      - name: Fixed protocol, independent CI, lost SSH and cancellation tests (no VPS)
+        run: |
+          python3 tests/staging_ci_test.py -v
+          python3 tests/staging_safety_test.py -v
+          python3 tests/staging_history_test.py -v
+          pnpm exec vitest run lib/impersonate/end-support.test.ts
+      - name: Real Chromium slow bodies, failed requests, page close and concurrent cleanup
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          pnpm exec playwright test --config tests/protocol-browser/playwright.config.ts --repeat-each=3
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
+        with:
+          name: release-safety-${{ github.event.pull_request.head.sha || github.sha }}
+          path: .superpowers/evidence/support-receipt-network/
+          if-no-files-found: warn
+          retention-days: 30

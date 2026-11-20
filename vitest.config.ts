@@ -48,6 +48,8 @@ export default defineConfig({
       "dist",
       ".claude/**",
       "tests/e2e/**",
+      // Real network lifecycle cases use Playwright in release-safety-ci.
+      "tests/protocol-browser/**",
       "tests/invariants/**",
       "tests/journeys/**",
       // POSIX signals use node:test, executed by test:shell on Linux.

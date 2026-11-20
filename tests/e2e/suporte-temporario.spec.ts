@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { createClient } from "@supabase/supabase-js";
 import { test, expect, type BrowserContext, type Page, type Request } from "@playwright/test";
 import { credenciaisSupabaseDeTeste } from "../../scripts/lib/env-de-teste";
+import { mutationLifecycle } from "./helpers/mutation-lifecycle";
 const credentials=credenciaisSupabaseDeTeste();
 const db=createClient(credentials.url,credentials.serviceRole,{auth:{persistSession:false}});
 const password=`Local-${randomUUID()}!`;
@@ -23,8 +24,6 @@ async function end(page:Page){await page.getByRole("button",{name:"Sair do acomp
 test("suporte mantém identidade, opera B e encerra sem misturar A; readonly/expiração/revogação são reais",async({page,browser})=>{
  test.setTimeout(240000);
  page.setDefaultTimeout(20000);
- const pendingMutations = new Set<Request>();
- const blockedBeforeSend = new WeakSet<Request>();
  const knownServerActions = new Set<Request>();
  const mutatesFixture = (request: Request) => {
   if (!["GET", "HEAD", "OPTIONS"].includes(request.method())) return true;
@@ -33,14 +32,13 @@ test("suporte mantém identidade, opera B e encerra sem misturar A; readonly/exp
   return request.method() === "GET" && (/^\/api\/v1\/channel-sessions\/[^/]+$/.test(path)
    || path === "/api/v1/onboarding/whatsapp/session");
  };
+ const lifecycle = mutationLifecycle(mutatesFixture);
+ const pendingMutations = lifecycle.pending;
  const observeRequests = (context: BrowserContext) => {
+  lifecycle.observe(context);
   context.on("request", request => {
-   if (mutatesFixture(request) && !blockedBeforeSend.has(request)) pendingMutations.add(request);
    if(request.method()==="POST" && ["/login","/app/settings/tenant"].includes(new URL(request.url()).pathname)) knownServerActions.add(request);
   });
-  context.on("requestfinished", request => pendingMutations.delete(request));
-  // Cancelamento após envio não prova que a transação no servidor terminou.
-  context.on("requestfailed", request => { if (blockedBeforeSend.has(request)) pendingMutations.delete(request); });
  };
  const acknowledgeKnownAction = async (target: Page, path: "/login" | "/app/settings/tenant") => {
   // Chamar SOMENTE após a confirmação semântica específica abaixo. O stream
@@ -53,9 +51,7 @@ test("suporte mantém identidade, opera B e encerra sem misturar A; readonly/exp
   expect(response?.headers()["content-type"]).toContain("text/x-component");
   pendingMutations.delete(request);knownServerActions.delete(request);
  };
- const pendingMutationDescriptions = () => [...pendingMutations].map(request=>({
-  method:request.method(),path:new URL(request.url()).pathname,
- }));
+ const pendingMutationDescriptions = lifecycle.describe;
  observeRequests(page.context());
  const joins: Array<{role:string;topic:string}> = [];
  const observeAuth=(target:Page)=>target.on("websocket",socket=>socket.on("framesent",frame=>{
@@ -226,12 +222,7 @@ test("suporte mantém identidade, opera B e encerra sem misturar A; readonly/exp
    const contexts=[page.context(),...(second ? [second] : [])];
    // Bloqueia novas mutações ANTES de fechar páginas; só aborts interceptados
    // antes do envio podem ser retirados sem esperar uma resposta do servidor.
-   await Promise.all(contexts.map(context=>context.route("**/*",async route=>{
-    const request=route.request();
-    if(mutatesFixture(request)){
-     blockedBeforeSend.add(request);pendingMutations.delete(request);await route.abort("aborted");
-    }else await route.continue();
-   })));
+   await lifecycle.freeze(contexts);
    await expect.poll(()=>pendingMutations.size,{timeout:20000,
     message:"Mutações enviadas devem concluir antes de fechar contextos ou apagar fixtures"}).toBe(0);
    const closing = await Promise.allSettled([

@@ -5,6 +5,7 @@ import { flushSync } from "react-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useOrganizationTransition } from "@/components/shell/OrganizationTransitionProvider";
+import { endSupportRequest } from "@/lib/impersonate/end-support";
 
 export interface ImpersonatingInfo {
   tenantId: string;
@@ -33,8 +34,7 @@ export function ImpersonateBanner({ impersonating, ended = false }: {
   async function handleEnd() {
     flushSync(() => { setBusy(true); transition.begin("Encerrando acompanhamento…"); });
     try {
-      const res = await fetch("/api/v1/admin/impersonate/end", { method: "POST" });
-      if (!res.ok) throw new Error("Não foi possível encerrar o acompanhamento. Tente novamente.");
+      await endSupportRequest();
       notifySupportTransition();
       window.location.assign("/app/inbox");
     } catch (error) {

@@ -3,7 +3,7 @@ name: rag-operations-isolated
 # Test-only branch validation BEFORE a PR, never images, secrets or deployment.
 on:
   push:
-    branches: [fix/rag-index-operations]
+    branches: [main, fix/rag-index-operations]
   pull_request:
     branches: [main]
 
