@@ -44,7 +44,7 @@ HASH_RE = re.compile(r'[a-f0-9]{64}')
 DIGEST_RE = re.compile(r'sha256:[a-f0-9]{64}')
 UUID_RE = re.compile(r'[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}')
 TRANSACTION_RE = re.compile(r'\d{8}T\d{6}Z-[a-f0-9]{12}')
-HISTORY_MODULE_SHA256 = '08984f0165303689a1eb09c03a864d2433c199219f1dea9088cb2a59a16e4076'
+HISTORY_MODULE_SHA256 = '8bf54ff9230c5370d4919266d6fa4d1c9222c5d4eea94997ea4819f9a01407e8'
 FIXED_ENV = {'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','HOME':'/root','LANG':'C.UTF-8','DOCKER_CONFIG':'/root/.docker','GIT_TERMINAL_PROMPT':'0'}
 CORE_PATHS = ('/api/v1/contacts?limit=20', '/api/v1/pipelines', '/api/v1/tasks')
 
@@ -73,7 +73,8 @@ def validate_request(value):
     operation = value.get('operation')
     need(operation in ('status','deploy','rollback','inspect'), 'operation_not_allowed')
     if operation == 'inspect':
-        need(set(value) == {'operation','transaction'} and matches(TRANSACTION_RE,value['transaction']),
+        need(set(value) == {'operation','transaction'} and
+             (value['transaction']=='latest' or matches(TRANSACTION_RE,value['transaction'])),
              'fixed_transaction_inspection_only')
         return value
     if operation != 'deploy':

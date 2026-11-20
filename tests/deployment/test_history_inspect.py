@@ -27,6 +27,7 @@ def release(sha, images, schema):
 class RequestTests(unittest.TestCase):
     def test_inspect_accepts_only_transaction_not_paths_shell_or_extra_fields(self):
         e.decode_request(json.dumps({'operation': 'inspect', 'transaction': h.DEPLOY}).encode())
+        e.decode_request(json.dumps({'operation': 'inspect', 'transaction': 'latest'}).encode())
         for value in ('../state.json', '/etc/shadow', h.DEPLOY + ';id', 'main', 'x' * 10000):
             with self.assertRaises(e.Failure):e.decode_request(json.dumps({'operation': 'inspect', 'transaction': value}).encode())
         with self.assertRaises(e.Failure):e.validate_request({'operation': 'inspect', 'transaction': h.DEPLOY, 'path': '/root'})
@@ -317,6 +318,7 @@ class NativeHistoryTests(unittest.TestCase):
         self.assertTrue(value['ok'], value)
         self.assertTrue(value['record']['legacy_native_journal_present'])
         self.assertEqual(value['record']['release']['images'], self.request['images'])
+        self.assertEqual(self.f.inspect('latest')['transaction'], result['transaction'])
 
     def test_runner_losing_result_or_cancelling_does_not_erase_completed_remote_transaction(self):
         # Run the actual engine in a distinct process; losing its transport result

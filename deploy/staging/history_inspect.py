@@ -345,7 +345,9 @@ def lineage(state, rt, records, basis):
         need(len(entries) <= 256, 'transaction_inventory_limit')
         for entry in entries:
             need(TX.fullmatch(entry.name), 'transaction_directory_identity')
-            known[entry.name] = inspect_native(entry.name, state, rt, records)
+            try:known[entry.name] = inspect_native(entry.name, state, rt, records)
+            except (OSError, ValueError, KeyError, TypeError):
+                raise Unknown('native_record_missing_or_conflicting') from None
     later = [r for r in records if r.get('phase') == 'started' and
              timestamp(r['at']) > timestamp(basis['recovery']['completed_at'])]
     if not later:
@@ -364,11 +366,12 @@ def lineage(state, rt, records, basis):
 def inspect(rt, request):
     import fcntl
     result = {'format': 1, 'capability': CAPABILITY, 'ok': False, 'status': 'unknown',
-              'read_only': True, 'deployment_authorized': False, 'transaction': request['transaction'],
+              'read_only': True, 'deployment_authorized': False,
+              'transaction': None if request['transaction'] == 'latest' else request['transaction'],
               'deployment_lock': 'unknown', 'backup_lock': 'unknown'}
     original_command = rt.command
     try:
-        need(TX.fullmatch(request['transaction']), 'transaction_identity')
+        need(request['transaction'] == 'latest' or TX.fullmatch(request['transaction']), 'transaction_identity')
         with contextlib.ExitStack() as stack:
             for name in ('deployment', 'backup'):
                 path = ROOT / (name + '.lock'); secure(path)
@@ -387,14 +390,20 @@ def inspect(rt, request):
             result['state'] = state_view(state)
             need(state.get('pending') is None, 'pending_transaction')
             raw, records = audit_records()
+            selected_tx = request['transaction']
+            if selected_tx == 'latest':
+                starts = [r for r in records if r.get('phase') == 'started']
+                need(starts and TX.fullmatch(starts[-1].get('transaction', '')), 'latest_transaction_identity')
+                selected_tx = starts[-1]['transaction']
+            result['transaction'] = selected_tx
             rt.command = read_only_runtime(rt)
             current = live(rt, state)
             basis, basis_hash = legacy(state, rt, records)
             assessment = review(basis_hash)
-            if request['transaction'] in (DEPLOY, RECOVERY):
-                selected = basis['deploy' if request['transaction'] == DEPLOY else 'recovery']
+            if selected_tx in (DEPLOY, RECOVERY):
+                selected = basis['deploy' if selected_tx == DEPLOY else 'recovery']
             else:
-                selected = inspect_native(request['transaction'], state, rt, records)
+                selected = inspect_native(selected_tx, state, rt, records)
             # A new release after the recovery is allowed only if its own durable
             # root record terminates consistently. Never infer this from current.
             lineage(state, rt, records, basis)
