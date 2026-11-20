@@ -64,6 +64,10 @@ const DIR = join(process.cwd(), ".github/workflows");
  * que desliga um job de entrega fica visível em code review.
  */
 const GATILHO_ESPERADO: Record<string, { condicao: string | null; efeito: string }> = {
+  "history-inspect-ci.yml::root-and-postgres": {
+    condicao: null,
+    efeito: "Valida a inspeção root, perda de transporte e cadeia 0412/0413 em PostgreSQL15/17 isolado; não instala controlador nem acessa a VPS.",
+  },
   "schema-0413-ci.yml::postgres-protocol": {
     condicao: null,
     efeito: "Valida cadeia fixa 0412/0413, arquivos root e SQL real em PG15/17 sem executar DDL na VPS nem instalar aprovações.",
