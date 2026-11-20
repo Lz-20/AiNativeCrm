@@ -860,6 +860,10 @@ type CategoriaDeHost =
 type EntradaDeHost = { categoria: CategoriaDeHost; motivo: string };
 
 const HOSTS_DECLARADOS: Record<string, EntradaDeHost> = {
+  "help.aliyun.com": {
+    categoria: "CONSOLE",
+    motivo: "Documentação oficial de preço/limite do Bailian aceita SOMENTE como referência de prova humana de Embedding; a aplicação não faz fetch desse URL, e ele não amplia a allowlist de saída do provedor.",
+  },
   "api.siliconflow.cn": {
     categoria: "FORNECEDOR",
     motivo: "Endpoint oficial SiliconFlow para embeddings escolhidos pela organização; endereço exato revisto contra SSRF, independente do modelo de inferência.",
@@ -1165,6 +1169,9 @@ describe("catraca de host de terceiro no código que embarca", () => {
       "000000000000-xxxxxxxx.apps.googleusercontent.com",
       "aistudio.google.com",
       "console.anthropic.com",
+      // A 0413 aceita a documentação oficial do Bailian como prova a ser lida
+      // pelo administrador; não é endpoint de HTTP automático nem amostra.
+      "help.aliyun.com",
       "meet.google.com",
       "meusistema.com",
       "mi-gateway.ejemplo.com",

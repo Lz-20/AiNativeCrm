@@ -431,3 +431,5 @@ To re-apply on a fresh Supabase project, replay the migrations in version order 
 | `20261027010200` | `0411_storage_e_broadcast_por_papel` | Storage exige vínculo aceito/ativo, MFA da sessão e papel (manager para escrita de conhecimento, admin para exportação LGPD); preserva suporte explícito. Publica conversation_notes e autoriza leitura de Broadcast privado por topic de tenant/plataforma; browser não ganha INSERT, dados continuam em consultas RLS. Sem alteração de dados, owners ou roles gerenciados. |
 
 | `20261118080000` | `0412_embedding_multiplos_provedores` | Embedding independente por organização, credenciais existentes cifradas, vetores 1024/1536 em tabela paralela, proveniência imutável e ativação atômica; preserva a coluna vector(1536) legada. Migração requer aprovação operacional separada. |
+
+| `20261119080000` | `0413_rag_operacoes_controladas` | Operacoes RAG por fonte e manifesto, prova humana de preco/teto de tokens, reserva duravel e fencing; sem seed de autorizacao ou alteracao de eventos/vetores existentes. Requer aprovacao Schema/Catalog independente. |

@@ -76,6 +76,7 @@ export async function searchKnowledge(
     const { embedding, profile, model } = await embed(args.query, {
       organizationId: args.organizationId,
       ponto: 'embedding_consultar',
+      access: { organizationId: args.organizationId, kind: 'query', sourceIds: fontes },
     });
     const vec = `[${embedding.join(',')}]`;
 

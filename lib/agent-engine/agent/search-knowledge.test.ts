@@ -29,6 +29,7 @@ describe('searchKnowledge', () => {
     expect(embed).toHaveBeenCalledWith('frete', {
       organizationId: 'org1',
       ponto: 'embedding_consultar',
+      access: { organizationId: 'org1', kind: 'query', sourceIds: [] },
     });
     // embedding vai à RPC como literal pgvector '[0.1,0.2]'; o limiar do agente
     // NÃO vai à RPC (vai o piso -1) — o corte agora é aqui, ver testes abaixo.

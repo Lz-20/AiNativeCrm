@@ -75,6 +75,9 @@ interface Excecao {
  * linhas da OUTRA organização, não uma leitura como superusuário.
  */
 const PROVA_PROPRIA: readonly Excecao[] = [
+{ tabela: "ai_embedding_price_reviews", razao: "tests/invariants/embedding-operations.test.ts — real own/foreign JWT reads for reviews/operations; request vectors reject both tenants; no direct browser writes." },
+{ tabela: "ai_embedding_operations", razao: "tests/invariants/embedding-operations.test.ts — real own/foreign JWT reads for reviews/operations; request vectors reject both tenants; no direct browser writes." },
+{ tabela: "ai_embedding_requests", razao: "tests/invariants/embedding-operations.test.ts — real own/foreign JWT reads for reviews/operations; request vectors reject both tenants; no direct browser writes." },
   { tabela: "ai_embedding_chunks", razao: "tests/invariants/embedding-profiles-isolation.test.ts — actual own viewer JWT reads a real vector row, foreign manager JWT sees zero rows; anonymous/browser write privileges rejected." },
   { tabela: "ai_embedding_configurations", razao: "tests/invariants/embedding-profiles-isolation.test.ts — actual own manager JWT reads configured profile, foreign manager JWT sees zero rows; browser writes remain service-only." },
   { tabela: "ai_customer_memories", razao: "tests/invariants/ai-browser-boundaries.test.ts — actual SQL as both authenticated tenants and anon, with service-role positive control; integration settings have positive own-tenant and negative cross-tenant rows." },

@@ -3,6 +3,23 @@ import { indexarFonte } from "@/workers/rag-indexer";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { embedText } from "@/lib/ai/embed";
 import { embeddingProfile } from "@/lib/ai/embeddings/profile";
+import { writeKnowledgeChunk } from "@/lib/ai/embeddings/write-chunk";
+vi.mock("@/lib/agent-engine/db/request-pool",()=>({getRequestPool:()=>({})}));
+vi.mock("@/lib/ai/embeddings/source-revision",()=>({sourceRevision:async()=> 'synthetic-revision'}));
+// This orchestration unit retains real table-branch assertions. Durable leases,
+// budgets and HTTP counts are tested with the actual PG store in invariants.
+vi.mock("@/lib/ai/embeddings/operation-store",()=>({
+  acquireIndexOperation:async()=>({completed:false,lease:{operationId:'op',organizationId:'org-1',owner:'owner',fence:'1'}}),
+  ensureIndexVersion:async(_lease:unknown,_kind:unknown,profile:ReturnType<typeof embeddingProfile>)=>{
+    await createKnowledgeVersion({organizationId:'org-1',knowledgeSourceId:'ks-1',agentId:null,sourceType:'faq',embeddingProfile:profile});return 'v-2';
+  },
+  writeIndexChunk:async(_lease:unknown,profile:ReturnType<typeof embeddingProfile>,position:number,content:string,metadata:Record<string,unknown>)=>{
+    const result=await writeKnowledgeChunk({organization_id:'org-1',knowledge_source_id:'ks-1',kb_version_id:'v-2',position,content,content_hash:'synthetic',token_count:5,embedding:'[0.1]',metadata:metadata as never},profile);
+    if(result.error) throw new Error('chunk_database_failed');
+  },
+  completeIndexOperation:async()=>{await markVersionReady('v-2','org-1',2);await activateVersion({organizationId:'org-1',knowledgeSourceId:'ks-1',versionId:'v-2',embeddingFingerprint:embeddingProfile({provider:'siliconflow',base_url:'https://api.siliconflow.cn/v1',model:'BAAI/bge-m3',dimensions:1024,model_revision:'1',enabled:true}).fingerprint});},
+  releaseIndexLease:async()=>undefined,
+}));
 import {
   activateVersion,
   createKnowledgeVersion,

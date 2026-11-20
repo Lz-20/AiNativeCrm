@@ -46,9 +46,11 @@ describe("embedding configuration has no automatic paid side effects", () => {
       model: "text-embedding-v4", dimensions: 1536, model_revision: "1", version: "v1", enabled: false }, credential: null } });
     panel(); await screen.findByText("Embedding：bailian / text-embedding-v4 / 1536");
     expect(api.post).not.toHaveBeenCalled();
+    expect(screen.getByText("验证Embedding（调用供应商，可能计费）")).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("接口验证操作授权UUID"),{target:{value:'e4130000-0000-4000-8000-000000000010'}});
     fireEvent.click(screen.getByText("验证Embedding（调用供应商，可能计费）"));
     await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
-    expect(api.post.mock.calls[0]?.[1]).toEqual({ confirm_cost: true });
+    expect(api.post.mock.calls[0]?.[1]).toEqual({ confirm_cost: true, operation_id:'e4130000-0000-4000-8000-000000000010' });
     expect(api.put).not.toHaveBeenCalled();
   });
   it("requires saving edits before a paid validation can target them", async () => {

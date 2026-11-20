@@ -1,0 +1,42 @@
+name: rag-operations-isolated
+
+# Test-only branch validation BEFORE a PR, never images, secrets or deployment.
+on:
+  push:
+    branches: [fix/rag-index-operations]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-postgres:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    concurrency:
+      group: rag-operations-pg-${{ matrix.postgres }}-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: [15, 17]
+    env:
+      TEST_DB_IMAGE: pgvector/pgvector:pg${{ matrix.postgres }}
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/preparar-node
+        timeout-minutes: 5
+      - name: Waiting events, wire admission and integer budget contract (offline only)
+        run: >-
+          pnpm exec vitest run lib/ai/embeddings lib/ai/embed.test.ts
+          lib/agent-engine/edge/llm/embedding-provider.test.ts
+          tests/unit/rag-operation-waiting.test.ts tests/unit/dreno-nao-perde-evento.test.ts
+      - name: Real PostgreSQL baseline install/update and operation/upgrade invariants
+        run: >-
+          pnpm test:db tests/invariants/embedding-operations.test.ts
+          tests/invariants/embedding-0413-upgrade-from-deployed.test.ts

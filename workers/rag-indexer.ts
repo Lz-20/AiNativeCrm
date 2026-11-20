@@ -36,7 +36,6 @@
 
 import { embedText, SemChaveDeEmbeddingError } from "@/lib/ai/embed";
 import { resolverChaveDeEmbedding, type ChaveDeEmbedding } from "@/lib/ai/embeddings/chave";
-import { acquireDebounce } from "@/lib/ai/rag/debounce";
 import { chunkText, computeContentHash } from "@/lib/ai/rag/chunker";
 import { canonizarTipoDeFonte } from "@/lib/ai/rag/tipos-de-fonte";
 import { extrairTextoDoArquivo, ErroDeExtracao } from "@/lib/ai/rag/ingest/documento";
@@ -53,8 +52,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { NuvemshopApiClient } from "@/lib/nuvemshop/api-client";
 import { writeKnowledgeChunk } from "@/lib/ai/embeddings/write-chunk";
 import type { Json } from "@/lib/database.types";
+import { acquireIndexOperation, ensureIndexVersion, releaseIndexLease, writeIndexChunk, completeIndexOperation } from "@/lib/ai/embeddings/operation-store";
+import { EmbeddingWaitingError, isEmbeddingWaiting, hashText, inputManifest, tenantStoragePath } from "@/lib/ai/embeddings/operation-contract";
+import { sourceRevision } from "@/lib/ai/embeddings/source-revision";
+import { getRequestPool } from "@/lib/agent-engine/db/request-pool";
 
-const DEBOUNCE_TTL_SEC = 30;
 const LAG_WARN_MS = 5 * 60 * 1000;
 /** Sem chave, o evento volta daqui a uma hora. Tempo de alguém cadastrar. */
 const RETRY_SEM_CHAVE_MS = 60 * 60 * 1000;
@@ -63,7 +65,8 @@ const RETRY_SEM_CHAVE_MS = 60 * 60 * 1000;
 // Tipos
 // ---------------------------------------------------------------------------
 
-interface FonteRow {
+export interface FonteRow {
+  active_kb_version_id?: string | null;
   id: string;
   organization_id: string;
   agent_id: string | null;
@@ -204,6 +207,9 @@ async function pedacosDeFaq(fonte: FonteRow): Promise<Pedaco[]> {
  * o worker só sabia ler `ai_faq_items`.
  */
 async function pedacosDeDocumento(fonte: FonteRow): Promise<Pedaco[]> {
+  return (await materialDeDocumento(fonte)).pedacos;
+}
+async function materialDeDocumento(fonte: FonteRow): Promise<{pedacos:Pedaco[];contentHash:string}> {
   const meta = (fonte.source_metadata ?? {}) as {
     blob_path?: string;
     filename?: string;
@@ -211,16 +217,57 @@ async function pedacosDeDocumento(fonte: FonteRow): Promise<Pedaco[]> {
   };
   const blobPath = meta.blob_path;
   if (!blobPath) throw new ErroDeExtracao("a fonte não aponta para nenhum arquivo");
+  if(!tenantStoragePath(fonte.organization_id,blobPath))
+    throw new ErroDeExtracao('embedding_source_storage_tenant_mismatch');
 
   const { texto, extensao } = await extrairTextoDoArquivo(blobPath, meta.ext);
-  return chunkText(texto, { maxChars: 1600, overlapChars: 200 }).map((c) => ({
+  return { contentHash:hashText(texto),pedacos:chunkText(texto, { maxChars: 1600, overlapChars: 200 }).map((c) => ({
     content: c,
     metadata: {
       source_type: fonte.source_type,
       arquivo: meta.filename ?? blobPath.split("/").pop() ?? "documento",
       extensao,
     },
-  }));
+  })) };
+}
+
+/** Read/parse only. Used by the authenticated authorization preview, never HTTP
+ * embeddings. The chunk algorithm/28-piece SVC-101 contract is unchanged.
+ */
+export async function prepareIndexMaterial(fonte:FonteRow) {
+  const pool=getRequestPool();const revision=await sourceRevision(pool,fonte.organization_id,fonte.id);
+  const tipo=canonizarTipoDeFonte(fonte.source_type);
+  let material:{pedacos:Pedaco[];contentHash:string};
+  if(tipo==='documento' || tipo==='wiki') material=await materialDeDocumento(fonte);
+  else if(tipo==='faq') { const pedacos=await pedacosDeFaq(fonte);material={pedacos,contentHash:hashText(JSON.stringify(pedacos.map(p=>p.content)))}; }
+  else throw new EmbeddingWaitingError('embedding_authorization_required');
+  if(await sourceRevision(pool,fonte.organization_id,fonte.id)!==revision) throw new EmbeddingWaitingError('embedding_configuration_changed');
+  const manifest=inputManifest(material.pedacos.map(p=>p.content));
+  return {...material,sourceRevisionHash:revision,...manifest};
+}
+
+async function indexarFonteControlada(fonte:FonteRow,chave:ChaveDeEmbedding):Promise<Resultado> {
+  const profile=chave.profile!;
+  const material=await prepareIndexMaterial(fonte);
+  const claim=await acquireIndexOperation(fonte.organization_id,fonte.id,material.contentHash,material.pedacos.map(p=>p.content),profile);
+  if(claim.completed) return {tipo:'ok',versionId:claim.operation.knowledge_version_id!,chunks:material.pedacos.length};
+  if(!claim.lease) throw new EmbeddingWaitingError('embedding_operation_blocked');
+  const lease=claim.lease;
+  try {
+    const versionId=await ensureIndexVersion(lease,fonte.source_type,profile);
+    await marcarFonte(fonte.organization_id,fonte.id,{last_index_status:'indexando'});
+    for(let position=0;position<material.pedacos.length;position++) {
+      const piece=material.pedacos[position]!;
+      // Succeeded request responses are durably cached; a resumed worker writes
+      // that exact vector without another paid request. Unknown requests stop.
+      await embedText(piece.content,{organizationId:fonte.organization_id,chave,
+        access:{organizationId:fonte.organization_id,kind:'index',sourceIds:[fonte.id],operationId:lease.operationId,lease,position}});
+      // Fail immediately: no subsequent embedding after a chunk DB write fails.
+      await writeIndexChunk(lease,profile,position,piece.content,piece.metadata);
+    }
+    await completeIndexOperation(lease);
+    return {tipo:'ok',versionId,chunks:material.pedacos.length};
+  } finally { await releaseIndexLease(lease); }
 }
 
 /** Catálogo: os produtos já sincronizados desta organização. */
@@ -324,6 +371,14 @@ export async function indexarFonte(
   chave: ChaveDeEmbedding,
   extra: { productId?: string },
 ): Promise<Resultado> {
+  if(chave.profile) {
+    try {return await indexarFonteControlada(fonte,chave);}
+    catch(error) {
+      if(isEmbeddingWaiting(error)) throw error;
+      if(error instanceof ErroDeExtracao) return {tipo:'erro',detalhe:error.detalhe?`${error.message} (${error.detalhe})`:error.message};
+      return {tipo:'erro',detalhe:'embedding_index_failed'};
+    }
+  }
   const tipo = canonizarTipoDeFonte(fonte.source_type);
   if (tipo === null) {
     return { tipo: "erro", detalhe: `tipo_de_material_desconhecido:${fonte.source_type}` };
@@ -428,6 +483,8 @@ export async function indexarFonte(
 
     if (upErr) {
       falhas.push({ posicao: i, mensagem: upErr.message });
+      await markVersionFailed(versionId, fonte.organization_id, gravados===0 ? "nenhum trecho gravado" : `1 de ${pedacos.length} trechos não gravaram: posição ${i} (${upErr.message})`);
+      return { tipo: "erro", detalhe: gravados===0 ? "nenhum_trecho_gravado" : `trechos_nao_gravados:${falhas.length}` };
     } else {
       gravados++;
     }
@@ -454,7 +511,6 @@ export async function indexarFonte(
     organizationId: fonte.organization_id,
     knowledgeSourceId: fonte.id,
     versionId,
-    ...(chave.profile ? { embeddingFingerprint: chave.profile.fingerprint } : {}),
   });
 
   return { tipo: "ok", versionId, chunks: gravados };
@@ -566,13 +622,6 @@ export async function processRagIndexer(row: EventRow): Promise<HandlerResult> {
       return { consumer_key: consumerKey, status: "skipped", detail: "fonte_arquivada" };
     }
 
-    // Debounce por FONTE (antes era por agente): duas edições seguidas do mesmo
-    // material coalescem, e materiais diferentes não se atrapalham.
-    const chaveDebounce = `rag:debounce:${row.organization_id}:${fonte.id}:${row.event_type}`;
-    if (!(await acquireDebounce(chaveDebounce, DEBOUNCE_TTL_SEC))) {
-      return { consumer_key: consumerKey, status: "skipped", detail: "debounced" };
-    }
-
     // A chave é resolvida UMA vez por indexação — não uma vez por trecho.
     const chave = await resolverChaveDeEmbedding(row.organization_id, "embedding_indexar");
     if (!chave) {
@@ -600,7 +649,9 @@ export async function processRagIndexer(row: EventRow): Promise<HandlerResult> {
       };
     }
 
-    await marcarFonte(row.organization_id, fonte.id, { last_index_status: "indexando" });
+    // A legacy key alone is not an authorization to spend. Existing 1536
+    // vectors are retained, but new indexing requires an explicit profile.
+    if (!chave.profile) throw new EmbeddingWaitingError('embedding_authorization_required');
 
     const resultado = await indexarFonte(fonte, chave, productId ? { productId } : {});
 
@@ -644,6 +695,16 @@ export async function processRagIndexer(row: EventRow): Promise<HandlerResult> {
     // o lote inteiro de eventos.
     if (err instanceof SemChaveDeEmbeddingError) {
       return { consumer_key: consumerKey, status: "retry", detail: "sem_chave_de_embedding" };
+    }
+    if (isEmbeddingWaiting(err)) {
+      // Waiting is neither success nor a failed indexing attempt. Keep pending,
+      // retain old attempts, explain the cause, and check again in one hour.
+      const sourceId=row.event_type==='knowledge_source.updated' ? String(row.payload['knowledge_source_id']??'') : '';
+      if(sourceId) await marcarFonte(row.organization_id,sourceId,{
+        last_index_error:'Embedding等待有效配置、操作授权或剩余额度；已占用额度与历史请求请查看操作账本。',
+      });
+      return { consumer_key: consumerKey, status: "retry", detail: err.code,
+        retry_at: new Date(Date.now()+RETRY_SEM_CHAVE_MS).toISOString() };
     }
     const detalhe = err instanceof Error ? err.message : String(err);
     console.error("[rag-indexer] erro não tratado:", detalhe);

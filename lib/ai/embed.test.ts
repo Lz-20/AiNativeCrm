@@ -41,7 +41,13 @@ vi.mock("@/lib/ai/embeddings/chave", async () => {
   };
 });
 
-import { embedText, SemChaveDeEmbeddingError } from "@/lib/ai/embed";
+import { embedText as guardedEmbed, SemChaveDeEmbeddingError, type EmbedOptions } from "@/lib/ai/embed";
+vi.mock("@/lib/ai/embeddings/operation-store",()=>({
+  executeAuthorizedEmbedding:(_p:unknown,_i:unknown,_a:unknown,send:()=>Promise<unknown>)=>send(),
+}));
+// Supply a synthetic admission ONLY in this SDK wire-contract unit. The real
+// ledger has separate PostgreSQL HTTP-receiver tests, including legacy denial.
+const embedText=(text:string,opts:EmbedOptions)=>guardedEmbed(text,{...opts,access:{organizationId:opts.organizationId,kind:'query',sourceIds:['synthetic-source']}});
 import { embeddingProfile } from "./embeddings/profile";
 
 beforeEach(() => {
@@ -63,6 +69,10 @@ beforeEach(() => {
 });
 
 describe("embedText", () => {
+  it("never uses a legacy key to bypass an absent operation authorization",async()=> {
+    await expect(guardedEmbed('SVC-101',{organizationId:'org-1'})).rejects.toThrow('embedding_authorization_required');
+    expect(embedSpy).not.toHaveBeenCalled();
+  });
   it("cannot reuse a cached custom embedding credential in a different tenant", async () => {
     const profile = embeddingProfile({ provider: "siliconflow", base_url: "https://api.siliconflow.cn/v1", model: "BAAI/bge-m3", dimensions: 1024, model_revision: "1", enabled: true });
     const fetcher = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("live_provider_forbidden"));
