@@ -403,5 +403,41 @@ class NativeHistoryTests(unittest.TestCase):
         self.assertEqual(self.f.inspect(tx)['status'], 'unknown')
         self.assertEqual(len(self.updates), 3)
 
+    def pending_request(self):
+        tx = '20261120T030000Z-000000000001'
+        self.append_audit({'phase': 'requested', 'operation': 'deploy', 'sha': self.request['sha'],
+                          'images': self.request['images'], 'at': e.utcnow()})
+        proof = self.new_backup();target = release(self.request['sha'], self.request['images'], h.SCHEMA)
+        prior = copy.deepcopy(self.f.state['current'])
+        h.prepare(self.f.rt, self.f.state, self.request, target, prior, tx, proof);h.stage(self.f.rt, 'started')
+        self.f.state['pending'] = {'transaction': tx, 'operation': 'deploy', 'target': target,
+                                   'prior': prior, 'started_at': e.utcnow()}
+        self.f.put(self.f.root / 'state.json', self.f.state)
+        self.append_audit({'phase': 'started', 'transaction': tx, 'operation': 'deploy', 'sha': target['sha'],
+                          'images': target['images'], 'at': e.utcnow()})
+        return tx
+
+    def test_recorded_pending_deploy_can_restore_only_reviewed_ea_without_clearing_unknown_history(self):
+        tx = self.pending_request()
+        self.assertEqual(self.f.inspect()['status'], 'unknown')
+        restored = e.ReleaseEngine(self.f.rt).run({'operation': 'rollback'})
+        self.assertEqual(restored['sha'], h.EA);self.assertIsNone(self.f.state['pending'])
+        self.assertEqual(self.updates, [(n, h.EA) for n in h.SERVICES])
+        receipt = json.loads((self.f.root / 'transactions' / restored['transaction'] / 'receipt.json').read_bytes())
+        self.assertEqual(receipt['phase'], 'succeeded')
+        request = json.loads((self.f.root / 'transactions' / restored['transaction'] / 'request.json').read_bytes())
+        self.assertEqual(request['recovery_of'], tx)
+        # The predecessor still has no terminal receipt. No invented success or
+        # automatic new release qualification is introduced by the recovery.
+        self.assertEqual(self.f.inspect()['status'], 'unknown')
+        with self.assertRaises(h.Unknown):self.deploy()
+
+    def test_unbound_pending_record_never_authorizes_recovery(self):
+        tx = self.pending_request()
+        path = self.f.root / 'transactions' / tx / 'request.json'
+        value = json.loads(path.read_bytes());value['prior']['sha'] = 'f' * 40;self.f.put(path, value)
+        with self.assertRaises(h.Unknown):e.ReleaseEngine(self.f.rt).run({'operation': 'rollback'})
+        self.assertEqual(self.updates, [])
+
 
 if __name__ == '__main__':unittest.main()

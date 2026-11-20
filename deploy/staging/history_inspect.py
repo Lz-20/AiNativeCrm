@@ -472,15 +472,57 @@ def preflight(rt, state, request, target):
     # (which intentionally tries the lock itself). No new lock order is added.
     _, records = audit_records()
     basis, anchor = legacy(state, rt, records)
-    lineage(state, rt, records, basis)
     need(review(anchor)['status'] == 'reviewed', 'independent_history_review_required')
     if request['operation'] == 'deploy':
+        lineage(state, rt, records, basis)
         need(request['sha'] != state['current'].get('sha') and
              not any(r.get('phase') == 'started' and r.get('sha') == request['sha'] for r in records),
              'source_already_attempted_no_automatic_retry')
     else:
         # previous is an ordering fact, never an acceptance authorization.
         need(public_release(target) == basis['recovery']['release'], 'rollback_requires_reviewed_ea_cohort')
+        try:lineage(state, rt, records, basis)
+        except (OSError, ValueError, KeyError, TypeError):
+            # A pending/committed-but-unreceipted deployment must not prevent
+            # an independently authorized return to the one reviewed EA group.
+            # This neither accepts the failed cohort nor clears its history.
+            recoverable_ea(state, rt, records, target)
+
+
+def recoverable_ea(state, rt, records, target):
+    pending = state.get('pending')
+    if pending is not None:
+        need(type(pending) is dict and pending.get('operation') == 'deploy'
+             and TX.fullmatch(pending.get('transaction', '')), 'only_recorded_pending_deploy_recoverable')
+        txid = pending['transaction']
+    else:
+        starts = [r for r in records if r.get('phase') == 'started']
+        need(starts and starts[-1].get('operation') == 'deploy', 'unreceipted_deploy_required')
+        txid = starts[-1]['transaction']
+    need(TX.fullmatch(txid) and txid not in (DEPLOY, RECOVERY), 'native_recovery_identity')
+    folder = ROOT / 'transactions' / txid;secure(folder, directory=True)
+    original = json_value(read(folder / 'request.json'));journal = json_value(read(folder / 'journal.json'))
+    need(original.get('transaction') == journal.get('transaction') == txid
+         and journal.get('request_sha256') == digest(canonical(original))
+         and original.get('request', {}).get('operation') == 'deploy'
+         and public_release(original['prior']) == public_release(target), 'pending_root_request_binding')
+    starts = [r for r in records if r.get('transaction') == txid and r.get('phase') == 'started']
+    need(len(starts) == 1 and starts[0]['operation'] == 'deploy'
+         and starts[0]['sha'] == original['target']['sha'] and starts[0]['images'] == original['target']['images'],
+         'pending_audit_identity')
+    if pending is not None:
+        need(pending['target'] == original['target'] and pending['prior'] == original['prior']
+             and public_release(state['current']) == public_release(original['prior']), 'pending_state_identity')
+    else:
+        need(public_release(state['current']) == public_release(original['target'])
+             and public_release(state['previous']) == public_release(original['prior']), 'unreceipted_state_identity')
+    transactions = list((ROOT / 'transactions').iterdir());need(len(transactions) <= 256, 'transaction_inventory_limit')
+    for entry in transactions:
+        if entry.name != txid:inspect_native(entry.name, state, rt, records)
+    proof = original['backup']
+    backup(Path(proof['backup_directory']), proof['evidence_sha256'], state, rt)
+    # Evidence of the unresolved predecessor is retained, not marked succeeded.
+    rt._history_recovery_of = txid
 
 
 def prepare(rt, state, request, target, prior, txid, backup_proof):
@@ -490,6 +532,8 @@ def prepare(rt, state, request, target, prior, txid, backup_proof):
              'target': copy.deepcopy(target), 'prior': copy.deepcopy(prior),
              'database_schema': SCHEMA, 'state_before_sha256': digest(canonical(state)),
              'backup': copy.deepcopy(backup_proof)}
+    if request['operation'] == 'rollback' and getattr(rt, '_history_recovery_of', None):
+        value['recovery_of'] = rt._history_recovery_of
     folder = ROOT / 'transactions' / txid
     write(folder / 'request.json', value, immutable=True)
     write(folder / 'journal.json', {'format': 1, 'transaction': txid, 'phase': 'prepared',

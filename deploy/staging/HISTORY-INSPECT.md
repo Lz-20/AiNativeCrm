@@ -96,6 +96,14 @@ apagar Schema nem escolher previous automaticamente. Restauração root bem
 sucedida pode ser consultada independentemente de Actions. Incidente futuro
 diferente do par fixo requer nova análise/revisão, não herda exceção ac8.
 
+O bloqueio de novo deploy não impede uma recuperação EA INDEPENDENTEMENTE
+autorizada quando há manifest/journal root autêntico do deploy pendente ou já
+aplicado sem receipt. Target/prior, audit e estado devem coincidir exatamente;
+backup original e novo backup da recuperação continuam obrigatórios. Recuperar
+imagens não completa o receipt ausente: recovery_of conserva o predecessor e a
+qualificação global permanece unknown até outra revisão. Sem registro nativo,
+com dados conflitantes ou alvo fora do EA fixo, a recuperação é recusada.
+
 ## Instalação futura separada
 
 Somente engine.py e history_inspect.py são novos arquivos executáveis desta

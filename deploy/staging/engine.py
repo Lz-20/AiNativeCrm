@@ -44,7 +44,7 @@ HASH_RE = re.compile(r'[a-f0-9]{64}')
 DIGEST_RE = re.compile(r'sha256:[a-f0-9]{64}')
 UUID_RE = re.compile(r'[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}')
 TRANSACTION_RE = re.compile(r'\d{8}T\d{6}Z-[a-f0-9]{12}')
-HISTORY_MODULE_SHA256 = '70c454ef47c888b8cb7cb1fd123ccb15389d8d1839d2e463c2df31e6651a1f89'
+HISTORY_MODULE_SHA256 = '95d8bdb1604ecd1163eec0ad00dfb3ee37802ec2969375761246d4695b0a5c39'
 FIXED_ENV = {'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','HOME':'/root','LANG':'C.UTF-8','DOCKER_CONFIG':'/root/.docker','GIT_TERMINAL_PROMPT':'0'}
 CORE_PATHS = ('/api/v1/contacts?limit=20', '/api/v1/pipelines', '/api/v1/tasks')
 
