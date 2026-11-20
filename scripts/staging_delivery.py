@@ -58,6 +58,8 @@ def deliver(request, quality, run_id, journal, *, read=gate.api, transport=clien
     try:
         transport(status_request, base / "status-before.json", timeout_seconds=30)
         before = json.loads((base / "status-before.json").read_text(encoding="utf-8"))
+        gate.need(before.get("ok") is True and before.get("recovery_required") is False,
+                  "remote_status_unknown_before_dispatch")
         client.check_status(before, request["schema_sha256"], request["trigger"])
         record["before"] = before
         # Recheck after the server's read-only status. Later upstream changes
@@ -78,6 +80,8 @@ def deliver(request, quality, run_id, journal, *, read=gate.api, transport=clien
         save(journal, record)
         transport(status_request, base / "status-after.json", timeout_seconds=30)
         status = json.loads((base / "status-after.json").read_text(encoding="utf-8"))
+        gate.need(status.get("ok") is True and status.get("recovery_required") is False,
+                  "remote_status_unknown_after_dispatch")
         client.verify_release(request, status)
         # A quality rerun/cancellation after acceptance is an incident, never a
         # reason to guess previous or silently call deploy again.

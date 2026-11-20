@@ -85,6 +85,18 @@ class Quality(unittest.TestCase):
             elif kind == "wrong_sha":value["e2e.yml"]["run"]["head_sha"] = "d" * 40
             else:value["e2e.yml"]["run"]["run_attempt"] = 2
             with self.assertRaises(g.Blocked):g.evaluate_quality(SHA, value)
+    def test_main_moving_during_api_snapshot_never_creates_authorization(self):
+        gh=Github();reads=0
+        def read(path,**kwargs):
+            nonlocal reads
+            if path=="git/ref/heads/main":
+                reads+=1
+                return {"object":{"sha":SHA if reads==1 else "d"*40}}
+            return gh(path,**kwargs)
+        with tempfile.TemporaryDirectory() as tmp:
+            out=Path(tmp)/"quality.json"
+            with self.assertRaisesRegex(g.Blocked,"main_moved"):g.check_quality(SHA,out,read=read)
+            self.assertFalse(out.exists())
     def test_missing_wait_never_returns_authorization(self):
         gh = Github();gh.values["e2e.yml"]["jobs"] = []
         with tempfile.TemporaryDirectory() as tmp:
@@ -160,6 +172,41 @@ class Delivery(unittest.TestCase):
         for status in [None,{**BEFORE,"previous":"unaccepted"},AFTER,{**AFTER,"recovery_required":True}]:
             r=g.reconcile(REQUEST,BEFORE,status)
             self.assertFalse(r["allow_new_deploy"]);self.assertFalse(r["automatic_rollback"]);self.assertIsNone(r["transaction"])
+    def test_missing_or_failed_remote_status_blocks_before_dispatch(self):
+        for invalid in ("missing_recovery","recovery_true","ok_false"):
+            calls=[]
+            def transport(request,output,**kwargs):
+                q=json.loads(Path(request).read_text());calls.append(q)
+                status=copy.deepcopy(BEFORE)
+                if invalid=="missing_recovery":del status["recovery_required"]
+                elif invalid=="recovery_true":status["recovery_required"]=True
+                else:status["ok"]=False
+                Path(output).write_text(json.dumps(status))
+            with tempfile.TemporaryDirectory() as tmp:
+                with self.assertRaisesRegex(g.Blocked,"remote_status_unknown_before_dispatch"):
+                    d.deliver(REQUEST,g.evaluate_quality(SHA,inventories()),99,Path(tmp)/"journal",read=Github(),transport=transport)
+            self.assertEqual(calls,[{"operation":"status"}])
+    def test_matching_images_with_unknown_remote_final_state_are_never_verified(self):
+        for invalid in ("missing_recovery","recovery_true","ok_false"):
+            calls=[]
+            def transport(request,output,**kwargs):
+                q=json.loads(Path(request).read_text());calls.append(q)
+                status=copy.deepcopy(AFTER if len(calls)>1 else BEFORE)
+                if len(calls)>1:
+                    if invalid=="missing_recovery":del status["recovery_required"]
+                    elif invalid=="recovery_true":status["recovery_required"]=True
+                    else:status["ok"]=False
+                Path(output).write_text(json.dumps(RESULT if q["operation"]=="deploy" else status))
+            with tempfile.TemporaryDirectory() as tmp:
+                journal=Path(tmp)/"journal"
+                with self.assertRaisesRegex(g.Blocked,"remote_status_unknown_after_dispatch"):
+                    d.deliver(REQUEST,g.evaluate_quality(SHA,inventories()),99,journal,read=Github(),transport=transport)
+                record=json.loads(journal.read_text())
+                self.assertEqual(record["phase"],"operator_reconciliation_required")
+                self.assertEqual(record["reconciliation"]["outcome"],"remote_unknown_or_running")
+                self.assertFalse(record["reconciliation"]["allow_new_deploy"])
+            self.assertEqual(sum(c["operation"]=="deploy" for c in calls),1)
+            self.assertFalse(any(c["operation"]=="rollback" for c in calls))
     def test_original_entry_rejects_rollback_payload(self):
         with self.assertRaises(g.Blocked):d.validate_request({"operation":"rollback"})
     def test_skipped_jobs_with_github_timestamps_are_not_delivery_claims(self):

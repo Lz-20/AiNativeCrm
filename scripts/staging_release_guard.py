@@ -129,6 +129,7 @@ def check_quality(sha, output, *, wait_seconds=0, read=api, sleep=time.sleep):
         need(read("git/ref/heads/main")["object"]["sha"] == sha, "main_moved")
         try:
             receipt = evaluate_quality(sha, quality_snapshot(sha, read))
+            need(read("git/ref/heads/main")["object"]["sha"] == sha, "main_moved")
             Path(output).write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n", encoding="utf-8")
             return receipt
         except Waiting:
@@ -232,7 +233,7 @@ def reconcile(request, before, status, result=None):
             and isinstance(result.get("transaction"), str)
             and re.fullmatch(r"\d{8}T\d{6}Z-[a-f0-9]{12}", result["transaction"])):
         record["transaction"] = result["transaction"]
-    if not status or status.get("recovery_required") is not False:
+    if not status or status.get("ok") is not True or status.get("recovery_required") is not False:
         record["outcome"] = "remote_unknown_or_running"
     elif (status.get("sha") == request["sha"] and status.get("images") == request["images"]
           and status.get("schema_sha256") == request["schema_sha256"]):
