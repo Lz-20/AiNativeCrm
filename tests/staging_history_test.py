@@ -194,5 +194,27 @@ class TrustedHistory(unittest.TestCase):
         self.assertEqual(calls, [{'operation': 'inspect', 'transaction': history.DEPLOY}])
         self.assertFalse(result['deployment_authorized'])
 
+    def test_cancelled_actions_and_lost_deploy_result_observe_both_root_transactions_without_deploy(self):
+        for reviewed in (False, True):
+            value = proof(reviewed);gh = Github(value)
+            gh.legacy['status'] = 'completed'
+            def read(path, **kwargs):
+                if path == 'actions/runs/' + str(history.LEGACY_RUN):return gh.legacy
+                return gh(path, **kwargs)
+            calls = []
+            def transport(path, output, **kwargs):
+                q = json.loads(Path(path).read_text());calls.append(q)
+                if q['operation'] == 'status':result = {**base.BEFORE, 'sha': history.EA}
+                else:result = value
+                Path(output).write_text(json.dumps(result))
+            with tempfile.TemporaryDirectory() as tmp:
+                result = observer.observe(history.LEGACY_RUN, Path(tmp) / 'reconciliation.json', read=read, transport=transport)
+            self.assertEqual(calls, [{'operation': 'status'}, {'operation': 'inspect', 'transaction': history.DEPLOY}])
+            self.assertEqual(result['transaction'], history.DEPLOY)
+            self.assertEqual(result['recovery_transaction'], history.RECOVERY)
+            self.assertFalse(result['allow_new_deploy']);self.assertFalse(result['automatic_rollback'])
+            self.assertEqual(result['outcome'], 'historical_failure_recovered_after_root_review' if reviewed
+                             else 'historical_chain_authenticated_human_review_required')
+
 
 if __name__ == '__main__':unittest.main()
