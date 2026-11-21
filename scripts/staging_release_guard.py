@@ -26,10 +26,24 @@ BAD = {"failure", "cancelled", "timed_out", "action_required", "stale", "startup
 SHA = re.compile(r"[a-f0-9]{40}\Z")
 
 
+DEPLOY_STEP = "Deploy only app, worker and scheduler through the restricted entry"
+
+
 def deploy_started(job):
-    # GitHub can timestamp a skipped job even though none of its steps ran.
-    return (job.get("name") == "deploy" and job.get("conclusion") != "skipped"
-            and job.get("status") in ("in_progress", "completed") and bool(job.get("started_at")))
+    # GitHub can timestamp a skipped job, a queued job cancelled before any
+    # runner picked it up, or a deploy job that stopped in pre-dispatch gates
+    # before the delivery step ever ran.
+    if not (job.get("name") == "deploy" and job.get("conclusion") != "skipped"
+            and job.get("status") in ("in_progress", "completed") and bool(job.get("started_at"))):
+        return False
+    steps = job.get("steps")
+    if isinstance(steps, list):
+        if not steps and job.get("status") == "completed" and job.get("runner_id") is None:
+            return False
+        delivery_steps = [s for s in steps if s.get("name") == DEPLOY_STEP]
+        if delivery_steps and all(s.get("status") == "completed" and s.get("conclusion") == "skipped" for s in delivery_steps):
+            return False
+    return True
 
 
 class Blocked(ValueError):
@@ -245,6 +259,18 @@ def reviewed_history(run, root, read=api):
          and result.get('sha') == run['head_sha'] and all(result.get(k) == status.get(k) for k in ('sha', 'schema_sha256', 'images')),
          'legacy_original_result_not_success')
     terminals = [r for r in root['prior_terminals'] if r['transaction'] == result.get('transaction')]
+    if not terminals and run['id'] == history.GENESIS_RUN:
+        need(root['incident'].get('legacy_audit_prefix_sha256') == history.LEGACY_AUDIT_PREFIX_SHA256
+             and root['incident'].get('legacy_audit_prefix_bytes') == history.LEGACY_AUDIT_PREFIX_BYTES
+             and root['database'].get('approved_schema_sha256') == history.GENESIS_SCHEMA
+             and result.get('transaction') == history.GENESIS_TX
+             and result.get('sha') == history.GENESIS_SHA
+             and result.get('schema_sha256') == history.GENESIS_SCHEMA
+             and result.get('images') == history.GENESIS_IMAGES,
+             'legacy_result_root_terminal_mismatch')
+        terminals = [{'transaction': history.GENESIS_TX,
+                      'release': {'sha': history.GENESIS_SHA, 'schema_sha256': history.GENESIS_SCHEMA,
+                                  'images': dict(history.GENESIS_IMAGES)}}]
     need(len(terminals) == 1 and all(result.get(k) == terminals[0]['release'][k] for k in ('sha', 'schema_sha256', 'images')),
          'legacy_result_root_terminal_mismatch')
     return {'run_id': run['id'], 'sha': run['head_sha'], 'transaction': result['transaction'],
