@@ -217,4 +217,62 @@ class TrustedHistory(unittest.TestCase):
                              else 'historical_chain_authenticated_human_review_required')
 
 
+    def test_pre_dispatch_gate_failure_and_queued_cancel_without_runner_are_not_delivery_claims(self):
+        gh = Github(self.proof)
+        gated = {**gh.legacy, 'id': 44855470756, 'head_sha': '8' * 40, 'conclusion': 'failure'}
+        queued = {**gh.legacy, 'id': 40667135817, 'head_sha': '9' * 40, 'conclusion': 'cancelled'}
+        gh.prior = [gated, *gh.prior, queued]
+        gh.prior_jobs[44855470756] = [{
+            'name': 'deploy', 'status': 'completed', 'conclusion': 'failure',
+            'started_at': '2026-11-21T02:45:09Z', 'runner_id': 1000001538,
+            'steps': [
+                {'number': 5, 'name': 'Check the last accepted schema and the server deployment gate',
+                 'status': 'completed', 'conclusion': 'failure'},
+                {'number': 6, 'name': gate.DEPLOY_STEP, 'status': 'completed', 'conclusion': 'skipped'},
+            ],
+        }]
+        gh.prior_jobs[40667135817] = [{
+            'name': 'deploy', 'status': 'completed', 'conclusion': 'cancelled',
+            'started_at': '2026-10-28T10:47:33Z', 'runner_id': None, 'steps': [],
+        }]
+        result = gate.delivery_history(base.SHA, 99, gh, inspect_root=lambda: self.proof)
+        self.assertEqual(len(result), 2)
+
+    def test_started_delivery_step_or_assigned_runner_without_steps_still_blocks_conservatively(self):
+        for steps, rid in [
+            ([{'number': 6, 'name': gate.DEPLOY_STEP, 'status': 'completed', 'conclusion': 'cancelled'}], 123),
+            ([], 123),
+        ]:
+            job = {'name': 'deploy', 'status': 'completed', 'conclusion': 'cancelled',
+                   'started_at': '2026-11-21T02:45:09Z', 'runner_id': rid, 'steps': steps}
+            self.assertTrue(gate.deploy_started(job))
+
+    def test_october_genesis_release_matches_pinned_audit_prefix_and_rejects_tampering(self):
+        v = copy.deepcopy(self.proof)
+        v['incident']['legacy_audit_prefix_sha256'] = history.LEGACY_AUDIT_PREFIX_SHA256
+        v['incident']['legacy_audit_prefix_bytes'] = history.LEGACY_AUDIT_PREFIX_BYTES
+        v['database']['approved_schema_sha256'] = history.GENESIS_SCHEMA
+        v['evidence_sha256'] = hashlib.sha256(history.canonical(v['incident'])).hexdigest()
+        with patch.object(history, 'EXPECTED_INCIDENT_SHA256', v['evidence_sha256']):
+            gh = Github(v)
+            genesis = {**gh.old, 'id': history.GENESIS_RUN, 'head_sha': history.GENESIS_SHA, 'run_attempt': 1}
+            gh.prior.append(genesis)
+            gh.prior_jobs[history.GENESIS_RUN] = [{
+                'name': 'deploy', 'status': 'completed', 'conclusion': 'success',
+                'started_at': '2026-10-28T12:37:23Z',
+            }]
+            res = {'ok': True, 'transaction': history.GENESIS_TX, 'sha': history.GENESIS_SHA,
+                   'schema_sha256': history.GENESIS_SCHEMA, 'images': dict(history.GENESIS_IMAGES)}
+            gh.add(history.GENESIS_RUN, 'staging-result-' + str(history.GENESIS_RUN),
+                   {'deployment.json': res, 'status-after.json': {**res, 'recovery_required': False}})
+            accepted = gate.delivery_history(base.SHA, 99, gh, inspect_root=lambda: v)
+            self.assertEqual(accepted[-1]['transaction'], history.GENESIS_TX)
+            bad = copy.deepcopy(v)
+            bad['incident']['legacy_audit_prefix_sha256'] = '0' * 64
+            bad['evidence_sha256'] = hashlib.sha256(history.canonical(bad['incident'])).hexdigest()
+            with patch.object(history, 'EXPECTED_INCIDENT_SHA256', bad['evidence_sha256']):
+                with self.assertRaises(gate.Blocked):
+                    gate.delivery_history(base.SHA, 99, gh, inspect_root=lambda: bad)
+
+
 if __name__ == '__main__':unittest.main()
