@@ -131,7 +131,7 @@ test("marcar um horário pela tela e vê-lo aparecer na grade — sem recarregar
   await page.waitForURL(/\/app(\/|$)/, { timeout: 20_000 });
 
   await page.goto("/app/agenda");
-  await expect(page.getByTestId("tela-agenda")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("main").getByTestId("tela-agenda")).toBeVisible({ timeout: 20_000 });
 
   // ⚠️ A SEMANA SEGUINTE, e ela é a condição de o caso poder passar.
   //

@@ -69,7 +69,7 @@ test("na agenda viva, o portão passa — e sem custo perceptível", async ({ pa
   const creds = lerCreds();
   await entrar(page, creds);
   await page.goto("/app/agenda");
-  await expect(page.getByTestId("tela-agenda")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("main").getByTestId("tela-agenda")).toBeVisible({ timeout: 20_000 });
 
   await aguardarGradeHidratada(page);
 });

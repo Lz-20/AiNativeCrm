@@ -133,7 +133,7 @@ test("crio um tipo COM responsável, e ele passa a ser marcável na Agenda", asy
 
   // ── O laço: o tipo novo chega na tela de marcar ───────────────────────
   await page.goto("/app/agenda");
-  await expect(page.getByTestId("tela-agenda")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("main").getByTestId("tela-agenda")).toBeVisible({ timeout: 20_000 });
   await page.getByRole("button", { name: /novo agendamento/i }).click();
   await expect(page.getByTestId("tipos-de-agendamento")).toBeVisible({ timeout: 15_000 });
   await expect(
