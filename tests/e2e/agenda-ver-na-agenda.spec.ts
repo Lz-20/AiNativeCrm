@@ -67,7 +67,7 @@ test("marcar, clicar em 'Ver na agenda', e ENCONTRAR o compromisso na grade", as
   await entrar(page, creds);
 
   await page.goto("/app/agenda");
-  await expect(page.getByTestId("tela-agenda")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("main").getByTestId("tela-agenda")).toBeVisible({ timeout: 20_000 });
 
   await page.getByRole("button", { name: /Novo agendamento/i }).click();
   // O tipo do seed, e não o primeiro da lista: só ele tem jornada publicada.

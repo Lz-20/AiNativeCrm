@@ -70,7 +70,7 @@ async function entrar(page: Page, creds: Creds) {
   await page.getByRole("button", { name: /entrar/i }).click();
   await page.waitForURL(/\/app(\/|$)/, { timeout: 20_000 });
   await page.goto("/app/agenda");
-  await expect(page.getByTestId("tela-agenda")).toBeVisible({ timeout: 25_000 });
+  await expect(page.getByRole("main").getByTestId("tela-agenda")).toBeVisible({ timeout: 25_000 });
 }
 
 async function instanteNoDia(page: Page, dia: string, hora: number): Promise<string> {
@@ -142,7 +142,7 @@ test("a ocupação do Google não oferece Remarcar nem Cancelar no histórico", 
   const eventoId = (evento as { id: string }).id;
 
   await page.reload();
-  await expect(page.getByTestId("tela-agenda")).toBeVisible({ timeout: 25_000 });
+  await expect(page.getByRole("main").getByTestId("tela-agenda")).toBeVisible({ timeout: 25_000 });
   await irParaASemanaSeguinte(page);
 
   // ─── O INVARIANTE, e ele NÃO é "a linha existe e está cinza" ──────────────

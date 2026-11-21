@@ -93,7 +93,7 @@ test("quem só lê abre a Agenda e não encontra nenhuma porta de escrita", asyn
   // A tela é DELE — o papel de leitura VÊ a agenda; o que ele não tem é o gesto.
   // Sem esta asserção, um 403 na página inteira faria as contagens abaixo darem
   // zero e a spec passaria medindo a tela errada.
-  await expect(page.getByTestId("tela-agenda")).toBeVisible({ timeout: ESPERA });
+  await expect(page.getByRole("main").getByTestId("tela-agenda")).toBeVisible({ timeout: ESPERA });
   await expect(page.getByRole("heading", { name: "Agenda", exact: true })).toBeVisible();
 
   // PRIMEIRA PORTA — o botão do cabeçalho.
@@ -128,7 +128,7 @@ test("quem só lê abre a Agenda e não encontra nenhuma porta de escrita", asyn
 
   fs.mkdirSync(EVIDENCIA, { recursive: true });
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await expect(page.getByTestId("tela-agenda")).toBeVisible();
+  await expect(page.getByRole("main").getByTestId("tela-agenda")).toBeVisible();
   await page.screenshot({ path: path.join(EVIDENCIA, "1013-agenda-papel-de-leitura.png"), fullPage: true });
 });
 
@@ -142,7 +142,7 @@ test("o atendente abre a MESMA tela e as portas estão lá — o controle do cas
   await entrar(page, agente.email, creds.password);
   await page.goto("/app/agenda");
 
-  await expect(page.getByTestId("tela-agenda")).toBeVisible({ timeout: ESPERA });
+  await expect(page.getByRole("main").getByTestId("tela-agenda")).toBeVisible({ timeout: ESPERA });
   await expect(page.getByRole("heading", { name: "Agenda", exact: true })).toBeVisible();
 
   await expect(
@@ -162,6 +162,6 @@ test("o atendente abre a MESMA tela e as portas estão lá — o controle do cas
 
   fs.mkdirSync(EVIDENCIA, { recursive: true });
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await expect(page.getByTestId("tela-agenda")).toBeVisible();
+  await expect(page.getByRole("main").getByTestId("tela-agenda")).toBeVisible();
   await page.screenshot({ path: path.join(EVIDENCIA, "1013-agenda-papel-de-atendente.png"), fullPage: true });
 });
