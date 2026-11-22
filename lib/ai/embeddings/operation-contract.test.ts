@@ -72,6 +72,13 @@ describe("operation contract defaults to refusal", () => {
       { position: 1, hash: nonce, bytes: 1 },
     ]);
     expect(isBoundedFreeQueryManifest(bounded.manifest, bounded.manifestHash)).toBe(true);
+    // Simulate PostgreSQL jsonb key reordering (shorter keys first: hash, bytes, position)
+    const pgReordered = bounded.manifest.map((entry) => ({
+      hash: entry.hash,
+      bytes: entry.bytes,
+      position: entry.position,
+    }));
+    expect(isBoundedFreeQueryManifest(pgReordered, bounded.manifestHash)).toBe(true);
     const v1HashOfSameEntries = hashText(JSON.stringify([1, bounded.manifest]));
     expect(bounded.manifestHash).not.toBe(v1HashOfSameEntries);
     expect(isBoundedFreeQueryManifest(bounded.manifest, v1HashOfSameEntries)).toBe(false);

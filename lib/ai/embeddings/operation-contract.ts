@@ -56,6 +56,8 @@ export function isBoundedFreeQueryManifest(manifest: InputManifest, manifestHash
   if (
     !marker ||
     !nonce ||
+    Object.keys(marker).length !== 3 ||
+    Object.keys(nonce).length !== 3 ||
     marker.position !== 0 ||
     marker.hash !== BOUNDED_FREE_QUERY_MARKER_HASH ||
     !Number.isSafeInteger(marker.bytes) ||
@@ -66,7 +68,13 @@ export function isBoundedFreeQueryManifest(manifest: InputManifest, manifestHash
     nonce.bytes !== 1
   )
     return false;
-  return manifestHash === hashText(JSON.stringify([2, "bounded_free_query", manifest]));
+  // PostgreSQL jsonb sorts object keys by length then lexicographically
+  // ({ hash, bytes, position }), so reconstruct canonical key order before hashing.
+  const canonical: InputManifest = [
+    { position: 0, hash: marker.hash, bytes: marker.bytes },
+    { position: 1, hash: nonce.hash, bytes: 1 },
+  ];
+  return manifestHash === hashText(JSON.stringify([2, "bounded_free_query", canonical]));
 }
 export const priceReviewSchema = z
   .object({
