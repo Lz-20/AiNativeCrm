@@ -22,7 +22,9 @@ export function EmbeddingOperationsPanel({ canWrite }: { canWrite: boolean }) {
   });
   const [source, setSource] = useState(""),
     [kind, setKind] = useState("index"),
-    [question, setQuestion] = useState("");
+    [queryMode, setQueryMode] = useState<"exact" | "bounded_free_text">("exact"),
+    [question, setQuestion] = useState(""),
+    [maxQueryBytes, setMaxQueryBytes] = useState("2000");
   const [proposal, setProposal] = useState(""),
     [review, setReview] = useState(""),
     [receipt, setReceipt] = useState(""),
@@ -30,13 +32,23 @@ export function EmbeddingOperationsPanel({ canWrite }: { canWrite: boolean }) {
   async function act(action: "prepare" | "review_price" | "authorize") {
     setBusy(true);
     try {
+      const parsedMaxQueryBytes = Number.parseInt(maxQueryBytes, 10);
+      const queryPayload =
+        kind === "query"
+          ? queryMode === "bounded_free_text"
+            ? {
+                query_mode: "bounded_free_text" as const,
+                max_query_bytes: Number.isFinite(parsedMaxQueryBytes) ? parsedMaxQueryBytes : 2000,
+              }
+            : { query_mode: "exact" as const, inputs: [question] }
+          : {};
       const body =
         action === "prepare"
           ? {
               action,
               knowledge_source_id: source,
               kind,
-              ...(kind === "query" ? { inputs: [question] } : {}),
+              ...queryPayload,
             }
           : action === "review_price"
             ? { action, review: JSON.parse(review) }
@@ -85,16 +97,48 @@ export function EmbeddingOperationsPanel({ canWrite }: { canWrite: boolean }) {
           >
             <option value="index">单来源索引</option>
             <option value="validation">禁用状态接口验证</option>
-            <option value="query">固定问题检索</option>
+            <option value="query">知识库检索（固定问题 / 有界自由检索）</option>
           </select>
           {kind === "query" && (
             <>
-              <Label htmlFor="embedding-operation-question">批准的检索问题</Label>
-              <Input
-                id="embedding-operation-question"
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-              />
+              <Label htmlFor="embedding-operation-query-mode">检索授权模式</Label>
+              <select
+                id="embedding-operation-query-mode"
+                value={queryMode}
+                onChange={(e) => setQueryMode(e.target.value as "exact" | "bounded_free_text")}
+              >
+                <option value="exact">固定问题检索（逐字绑定）</option>
+                <option value="bounded_free_text">有界自由检索（按次数与字节封顶）</option>
+              </select>
+              {queryMode === "exact" ? (
+                <>
+                  <Label htmlFor="embedding-operation-question">批准的检索问题</Label>
+                  <Input
+                    id="embedding-operation-question"
+                    value={question}
+                    onChange={(e) => setQuestion(e.target.value)}
+                  />
+                </>
+              ) : (
+                <>
+                  <Label htmlFor="embedding-operation-max-query-bytes">
+                    单条检索词字节上限（1–2000）
+                  </Label>
+                  <Input
+                    id="embedding-operation-max-query-bytes"
+                    type="number"
+                    min={1}
+                    max={2000}
+                    value={maxQueryBytes}
+                    onChange={(e) => setMaxQueryBytes(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    有界自由检索允许工作台用任意自然语言调用知识库检索；批准时需显式设置
+                    max_requests（建议 50，上限 200）及有效期（上限 7
+                    天），同样遵守原子预留、同问缓存复用与未知结果阻断。
+                  </p>
+                </>
+              )}
             </>
           )}
           <Button type="button" variant="outline" disabled={busy} onClick={() => act("prepare")}>

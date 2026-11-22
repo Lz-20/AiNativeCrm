@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/require-role";
 import { requireSupportWrite } from "@/lib/impersonate/support";
@@ -7,9 +7,13 @@ import { audit } from "@/lib/audit";
 import { getRequestPool } from "@/lib/agent-engine/db/request-pool";
 import { readEmbeddingConfiguration, profileFromRow } from "@/lib/ai/embeddings/configuration";
 import {
+  MAX_BOUNDED_FREE_QUERY_BYTES,
+  MAX_BOUNDED_FREE_QUERY_WINDOW_MS,
   authorizeOperationSchema,
+  boundedFreeQueryManifest,
   priceReviewSchema,
   inputManifest,
+  isBoundedFreeQueryManifest,
 } from "@/lib/ai/embeddings/operation-contract";
 import { authorizeOperation } from "@/lib/ai/embeddings/operation-store";
 import { EmbeddingConfigurationError } from "@/lib/ai/embeddings/profile";
@@ -23,8 +27,18 @@ const requestSchema = z.discriminatedUnion("action", [
       knowledge_source_id: z.uuid(),
       kind: z.enum(["index", "validation", "query"]),
       inputs: z.array(z.string().min(1).max(32000)).min(1).max(10).optional(),
+      query_mode: z.enum(["exact", "bounded_free_text"]).optional(),
+      max_query_bytes: z.number().int().min(1).max(MAX_BOUNDED_FREE_QUERY_BYTES).optional(),
     })
-    .strict(),
+    .strict()
+    .refine(
+      (v) =>
+        v.kind === "query" ? true : v.query_mode === undefined && v.max_query_bytes === undefined,
+      { message: "query_mode and max_query_bytes are only allowed for query operations" },
+    )
+    .refine((v) => (v.query_mode === "bounded_free_text" ? v.inputs === undefined : true), {
+      message: "bounded_free_text does not accept fixed inputs",
+    }),
   z.object({ action: z.literal("review_price"), review: priceReviewSchema }).strict(),
   z.object({ action: z.literal("authorize"), operation: authorizeOperationSchema }).strict(),
   z.object({ action: z.literal("revoke"), operation_id: z.uuid() }).strict(),
@@ -90,14 +104,18 @@ export async function POST(req: Request) {
       const config = await readEmbeddingConfiguration(org);
       if (!config) throw new EmbeddingConfigurationError("embedding_authorization_required");
       const profile = profileFromRow(config);
+      const isBoundedFreeQuery = input.kind === "query" && input.query_mode === "bounded_free_text";
+      const maxQueryBytes = input.max_query_bytes ?? MAX_BOUNDED_FREE_QUERY_BYTES;
       const manifest =
         input.kind === "index"
           ? material
-          : inputManifest(
-              input.kind === "validation"
-                ? ["Embedding configuration validation"]
-                : (input.inputs ?? []),
-            );
+          : isBoundedFreeQuery
+            ? boundedFreeQueryManifest(maxQueryBytes, randomBytes(32).toString("hex"))
+            : inputManifest(
+                input.kind === "validation"
+                  ? ["Embedding configuration validation"]
+                  : (input.inputs ?? []),
+              );
       return ok(
         {
           knowledge_source_id: input.knowledge_source_id,
@@ -114,6 +132,9 @@ export async function POST(req: Request) {
           knowledge_version_id:
             input.kind === "query" ? (source.rows[0].active_kb_version_id ?? null) : null,
           authorization_installed: false,
+          ...(isBoundedFreeQuery
+            ? { query_mode: "bounded_free_text" as const, max_query_bytes: maxQueryBytes }
+            : {}),
         },
         { requestId },
       );
@@ -163,6 +184,12 @@ export async function POST(req: Request) {
       operationResourceId = rows[0]!.id;
     } else if (input.action === "authorize") {
       const operation = input.operation;
+      if (
+        isBoundedFreeQueryManifest(operation.manifest, operation.manifest_hash) &&
+        (Date.parse(operation.expires_at) <= Date.now() ||
+          Date.parse(operation.expires_at) > Date.now() + MAX_BOUNDED_FREE_QUERY_WINDOW_MS)
+      )
+        throw new EmbeddingConfigurationError("embedding_authorization_required");
       {
         const source = await db.query<FonteRow>(
           "select id,organization_id,agent_id,source_type,name,status,is_active,source_metadata,active_kb_version_id from public.ai_knowledge_sources where organization_id=$1 and id=$2",

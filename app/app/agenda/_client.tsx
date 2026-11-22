@@ -9,7 +9,7 @@ import { useLocaleDeData } from "@/hooks/i18n/useLocaleDeData";
 
 import { useT } from "@/hooks/i18n/useT";
 
-import { addDays, endOfMonth, format, startOfDay, startOfMonth, startOfWeek } from "date-fns";
+import { addDays, format, startOfDay, startOfMonth, startOfWeek } from "date-fns";
 import * as React from "react";
 
 import { AvisoDaConexaoGoogle } from "./_components/AvisoDaConexaoGoogle";
@@ -330,14 +330,11 @@ export function AgendaClient({
   const recorteDaGrade = React.useMemo(() => {
     const inicio =
       visao === "mes"
-        ? startOfMonth(ancora)
+        ? startOfWeek(startOfMonth(ancora), { weekStartsOn: 0 })
         : visao === "semana"
           ? startOfWeek(ancora, { weekStartsOn: 0 })
           : startOfDay(ancora);
-    const fim =
-      visao === "mes"
-        ? addDays(endOfMonth(ancora), 1)
-        : addDays(inicio, visao === "semana" ? 7 : 1);
+    const fim = visao === "mes" ? addDays(inicio, 42) : addDays(inicio, visao === "semana" ? 7 : 1);
     return { de: inicio.toISOString(), ate: fim.toISOString() };
   }, [visao, ancora]);
 
@@ -667,11 +664,11 @@ export function AgendaClient({
           <div className="grid shrink-0 gap-3 rounded-lg border p-3 lg:grid-cols-2">
             {!remarcandoId ? (
               <div className="lg:col-span-2">
-              <VinculoDaMarcacao
-                contactId={contactId}
-                conversationId={conversationId}
-                onChange={(contact, conversation) => escolherVinculo({ contact, conversation })}
-              />
+                <VinculoDaMarcacao
+                  contactId={contactId}
+                  conversationId={conversationId}
+                  onChange={(contact, conversation) => escolherVinculo({ contact, conversation })}
+                />
               </div>
             ) : null}
             {tiposIniciais.length > 1 && (
@@ -750,10 +747,7 @@ export function AgendaClient({
             </div>
             {!remarcandoId ? (
               <>
-                <EnderecoDaMarcacao
-                  value={endereco}
-                  onChange={setEnderecoEditado}
-                />
+                <EnderecoDaMarcacao value={endereco} onChange={setEnderecoEditado} />
                 <div>
                   <label className="block" htmlFor="observacao-do-compromisso">
                     {t("Observação")}{" "}
