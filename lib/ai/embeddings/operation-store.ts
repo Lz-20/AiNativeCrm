@@ -8,9 +8,13 @@ import { assertEmbedding, embeddingProfile, type EmbeddingProfile } from "./prof
 import {
   type AuthorizeOperation,
   type InputManifest,
+  BOUNDED_FREE_QUERY_MARKER_HASH,
   EmbeddingWaitingError,
+  MAX_BOUNDED_FREE_QUERY_REQUESTS,
+  MAX_BOUNDED_FREE_QUERY_WINDOW_MS,
   hashText,
   inputManifest,
+  isBoundedFreeQueryManifest,
   upperCost,
 } from "./operation-contract";
 import { sourceRevision } from "./source-revision";
@@ -200,7 +204,24 @@ export async function authorizeOperation(
 ): Promise<string> {
   if (input.kind === "query" ? !input.knowledge_version_id : input.knowledge_version_id !== null)
     return wait("embedding_authorization_required");
-  if (
+  const isBoundedFree = isBoundedFreeQueryManifest(input.manifest, input.manifest_hash);
+  if (isBoundedFree) {
+    if (
+      input.kind !== "query" ||
+      input.max_requests < 1 ||
+      input.max_requests > MAX_BOUNDED_FREE_QUERY_REQUESTS
+    )
+      return wait("embedding_authorization_required");
+    const expiresMs = Date.parse(input.expires_at);
+    const notBeforeMs = Date.parse(input.not_before);
+    if (
+      !Number.isFinite(expiresMs) ||
+      !Number.isFinite(notBeforeMs) ||
+      expiresMs <= notBeforeMs ||
+      expiresMs > Date.now() + MAX_BOUNDED_FREE_QUERY_WINDOW_MS
+    )
+      return wait("embedding_authorization_required");
+  } else if (
     input.manifest.some((m, i) => m.position !== i) ||
     hashText(JSON.stringify([1, input.manifest])) !== input.manifest_hash ||
     input.max_requests < input.manifest.length
@@ -431,10 +452,34 @@ export async function executeAuthorizedEmbedding(
           JSON.stringify([{ hash, bytes }]),
         ],
       );
+      let matchedId = found.rows[0]?.id;
+      if (!matchedId && access.kind === "query") {
+        const bounded = await c.query<{ id: string }>(
+          `select o.id
+          from public.ai_embedding_operations o
+          join public.ai_embedding_configurations cfg
+            on cfg.organization_id=o.organization_id and cfg.version=o.configuration_version
+          join public.ai_knowledge_sources s
+            on s.organization_id=o.organization_id and s.id=o.knowledge_source_id and s.active_kb_version_id=o.knowledge_version_id
+          where o.organization_id=$1 and o.knowledge_source_id=$2 and o.kind='query' and o.fingerprint=$3
+            and o.status in ('approved','running','completed')
+            and o.not_before<=clock_timestamp() and o.expires_at>clock_timestamp()
+            and o.manifest @> $4::jsonb
+          order by (o.reserved_requests < o.max_requests) desc, o.approved_at desc
+          limit 1`,
+          [
+            access.organizationId,
+            access.sourceIds[0],
+            profile.fingerprint,
+            JSON.stringify([{ position: 0, hash: BOUNDED_FREE_QUERY_MARKER_HASH }]),
+          ],
+        );
+        matchedId = bounded.rows[0]?.id;
+      }
       op = await lockOperation(
         c,
         access.organizationId,
-        found.rows[0]?.id ?? wait("embedding_authorization_required"),
+        matchedId ?? wait("embedding_authorization_required"),
       );
     }
     if (
@@ -445,26 +490,46 @@ export async function executeAuthorizedEmbedding(
       wait("embedding_authorization_required");
     const price = await guard(c, op, access.kind === "validation");
     if (op.kind === "index") checkLease(op, access.lease);
-    const position =
-      access.position ?? op.manifest.findIndex((m) => m.hash === hash && m.bytes === bytes);
-    const entry = op.manifest[position];
-    if (
-      !entry ||
-      entry.position !== position ||
-      entry.hash !== hash ||
-      entry.bytes !== bytes ||
-      bytes > price.input_byte_ceiling
-    )
-      wait("embedding_authorization_required");
-    const prior = await c.query<{
-      id: string;
-      status: string;
-      embedding: string | null;
-      actual_tokens: number;
-    }>(
-      "select id,status,response_embedding::text as embedding,actual_tokens from public.ai_embedding_requests where organization_id=$1 and operation_id=$2 and input_position=$3",
-      [op.organization_id, op.id, position],
-    );
+    const boundedFree =
+      op.kind === "query" && isBoundedFreeQueryManifest(op.manifest, op.manifest_hash);
+    let exactPosition: number | null = null;
+    if (boundedFree) {
+      const maxQueryBytes = op.manifest[0]!.bytes;
+      if (bytes < 1 || bytes > maxQueryBytes || bytes > price.input_byte_ceiling)
+        wait("embedding_authorization_required");
+    } else {
+      const position =
+        access.position ?? op.manifest.findIndex((m) => m.hash === hash && m.bytes === bytes);
+      const entry = op.manifest[position];
+      if (
+        !entry ||
+        entry.position !== position ||
+        entry.hash !== hash ||
+        entry.bytes !== bytes ||
+        bytes > price.input_byte_ceiling
+      )
+        wait("embedding_authorization_required");
+      exactPosition = position;
+    }
+    const prior = boundedFree
+      ? await c.query<{
+          id: string;
+          status: string;
+          embedding: string | null;
+          actual_tokens: number;
+        }>(
+          "select id,status,response_embedding::text as embedding,actual_tokens from public.ai_embedding_requests where organization_id=$1 and operation_id=$2 and input_hash=$3 order by created_at desc limit 1",
+          [op.organization_id, op.id, hash],
+        )
+      : await c.query<{
+          id: string;
+          status: string;
+          embedding: string | null;
+          actual_tokens: number;
+        }>(
+          "select id,status,response_embedding::text as embedding,actual_tokens from public.ai_embedding_requests where organization_id=$1 and operation_id=$2 and input_position=$3",
+          [op.organization_id, op.id, exactPosition],
+        );
     const cached = prior.rows[0];
     if (cached) {
       if (cached.status !== "succeeded" || !cached.embedding) wait("embedding_operation_blocked");
@@ -476,6 +541,21 @@ export async function executeAuthorizedEmbedding(
         cached: { embedding: vector, promptTokens: cached.actual_tokens },
       };
     }
+    if (boundedFree) {
+      const uncertain = await c.query(
+        "select 1 from public.ai_embedding_requests where organization_id=$1 and operation_id=$2 and status='unknown' limit 1",
+        [op.organization_id, op.id],
+      );
+      if (uncertain.rows.length) wait("embedding_operation_blocked");
+    }
+    const allocatePosition = async (): Promise<number> => {
+      if (exactPosition !== null) return exactPosition;
+      const next = await c.query<{ next_pos: number }>(
+        "select coalesce(max(input_position), -1) + 1 as next_pos from public.ai_embedding_requests where organization_id=$1 and operation_id=$2",
+        [op.organization_id, op.id],
+      );
+      return next.rows[0]!.next_pos;
+    };
     // Reuse only a durably successful response in the SAME tenant, source,
     // document and vector space. A failed/unknown slot is never reusable.
     const previous = await c.query<{
@@ -494,6 +574,7 @@ export async function executeAuthorizedEmbedding(
     if (reusable) {
       const vector: unknown = JSON.parse(reusable.embedding);
       assertEmbedding(vector, profile.dimensions);
+      const position = await allocatePosition();
       const id = randomUUID();
       await c.query(
         `insert into public.ai_embedding_requests(id,organization_id,operation_id,input_position,input_hash,fence,status,reserved_tokens,reserved_cost_microcents,actual_tokens,actual_cost_microcents,response_embedding,reused_from_request_id,finished_at)
@@ -526,6 +607,7 @@ export async function executeAuthorizedEmbedding(
       BigInt(op.reserved_cost_microcents) + cost > BigInt(op.max_cost_microcents)
     )
       wait("embedding_budget_exhausted");
+    const position = await allocatePosition();
     const id = randomUUID();
     await c.query(
       "insert into public.ai_embedding_requests(id,organization_id,operation_id,input_position,input_hash,fence,reserved_tokens,reserved_cost_microcents) values($1,$2,$3,$4,$5,$6,$7,$8)",

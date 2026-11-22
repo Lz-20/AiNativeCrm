@@ -9,6 +9,7 @@ import { beforeAll, beforeEach, afterAll, describe, expect, it, vi } from "vites
 import { GOV_ORG, GOV_ADMIN, GOV_MANAGER, GOV_VIEWER, seedGov, sql, countAs } from "./gov-helpers";
 import { embeddingProfile } from "@/lib/ai/embeddings/profile";
 import {
+  boundedFreeQueryManifest,
   inputManifest,
   hashText,
   type AuthorizeOperation,
@@ -527,5 +528,189 @@ describe("0413 durable single-source operation + hard reservations", () => {
       operationId: rotatedValidation,
     });
     expect(calls).toBe(6); // same-operation replay remains idempotent
+  });
+  async function indexAndVersion(): Promise<string> {
+    await approve();
+    const lease = await claim();
+    await index(lease);
+    return sql(`select active_kb_version_id from public.ai_knowledge_sources where id='${source}'`);
+  }
+  async function approveBoundedQuery(
+    version: string,
+    opts: { maxRequests?: number; maxQueryBytes?: number; expiresMs?: number } = {},
+  ) {
+    const maxRequests = opts.maxRequests ?? 3;
+    const { manifest, manifestHash } = boundedFreeQueryManifest(opts.maxQueryBytes ?? 2000);
+    return approve({
+      kind: "query",
+      knowledge_version_id: version,
+      manifest,
+      manifest_hash: manifestHash,
+      max_requests: maxRequests,
+      max_total_tokens: String(8192 * maxRequests),
+      max_cost_microcents: String(8192 * maxRequests),
+      expires_at: new Date(Date.now() + (opts.expiresMs ?? 3600000)).toISOString(),
+    });
+  }
+  it("bounded_free_text is rejected for index/validation/over-window and exact grants never widen", async () => {
+    const version = await indexAndVersion();
+    const bounded = boundedFreeQueryManifest(2000);
+    await expect(
+      approve({
+        kind: "index",
+        knowledge_version_id: null,
+        manifest: bounded.manifest,
+        manifest_hash: bounded.manifestHash,
+      }),
+    ).rejects.toThrow("embedding_authorization_required");
+    await expect(
+      approve({
+        kind: "validation",
+        knowledge_version_id: null,
+        manifest: bounded.manifest,
+        manifest_hash: bounded.manifestHash,
+      }),
+    ).rejects.toThrow("embedding_authorization_required");
+    await expect(approveBoundedQuery(version, { expiresMs: 8 * 86400000 })).rejects.toThrow(
+      "embedding_authorization_required",
+    );
+    await expect(approveBoundedQuery(version, { maxRequests: 201 })).rejects.toThrow(
+      "embedding_authorization_required",
+    );
+    await approve({ kind: "query", knowledge_version_id: version }, ["exact-only-question"]);
+    await expect(
+      requestEmbedding(profile, "synthetic", "different-free-question", fetcher, {
+        organizationId: GOV_ORG,
+        kind: "query",
+        sourceIds: [source],
+      }),
+    ).rejects.toThrow("embedding_authorization_required");
+    expect(calls).toBe(3); // only the 3 index chunks
+  });
+  it("bounded_free_text allows natural-language queries up to max_requests then exhausts cleanly", async () => {
+    const version = await indexAndVersion();
+    const opId = await approveBoundedQuery(version, { maxRequests: 3, maxQueryBytes: 2000 });
+    const freeAccess = {
+      organizationId: GOV_ORG,
+      kind: "query" as const,
+      sourceIds: [source],
+    };
+    await requestEmbedding(profile, "synthetic", "你能提供哪些服务", fetcher, freeAccess);
+    await requestEmbedding(profile, "synthetic", "SVC-101 的服务时间是什么", fetcher, freeAccess);
+    await requestEmbedding(profile, "synthetic", "是否允许自动发消息", fetcher, freeAccess);
+    expect(calls).toBe(6);
+    expect(
+      sql(
+        `select string_agg(input_position::text, ',' order by input_position) from public.ai_embedding_requests where operation_id='${opId}' and status='succeeded'`,
+      ),
+    ).toBe("0,1,2");
+    await expect(
+      requestEmbedding(profile, "synthetic", "第四个新问题超出预算", fetcher, freeAccess),
+    ).rejects.toThrow("embedding_budget_exhausted");
+    expect(calls).toBe(6);
+  });
+  it("bounded_free_text reuses same-operation cached question at zero additional budget", async () => {
+    const version = await indexAndVersion();
+    const opId = await approveBoundedQuery(version, { maxRequests: 1, maxQueryBytes: 2000 });
+    const freeAccess = {
+      organizationId: GOV_ORG,
+      kind: "query" as const,
+      sourceIds: [source],
+    };
+    await requestEmbedding(profile, "synthetic", "重复提问测试", fetcher, freeAccess);
+    await requestEmbedding(profile, "synthetic", "重复提问测试", fetcher, freeAccess);
+    expect(calls).toBe(4); // 3 index + 1 query
+    expect(
+      sql(`select reserved_requests from public.ai_embedding_operations where id='${opId}'`),
+    ).toBe("1");
+    expect(
+      sql(`select count(*) from public.ai_embedding_requests where operation_id='${opId}'`),
+    ).toBe("1");
+  });
+  it("bounded_free_text rejects inputs exceeding max_query_bytes before any HTTP call", async () => {
+    const version = await indexAndVersion();
+    await approveBoundedQuery(version, { maxRequests: 3, maxQueryBytes: 64 });
+    await expect(
+      requestEmbedding(profile, "synthetic", "x".repeat(65), fetcher, {
+        organizationId: GOV_ORG,
+        kind: "query",
+        sourceIds: [source],
+      }),
+    ).rejects.toThrow("embedding_authorization_required");
+    expect(calls).toBe(3);
+  });
+  it("bounded_free_text marks uncertain upstream drop as unknown and blocks all follow-up queries", async () => {
+    const version = await indexAndVersion();
+    const opId = await approveBoundedQuery(version, { maxRequests: 3, maxQueryBytes: 2000 });
+    const freeAccess = {
+      organizationId: GOV_ORG,
+      kind: "query" as const,
+      sourceIds: [source],
+    };
+    await requestEmbedding(profile, "synthetic", "问题一正常", fetcher, freeAccess);
+    expect(calls).toBe(4);
+    mode = "drop";
+    await expect(
+      requestEmbedding(profile, "synthetic", "问题二超时", fetcher, freeAccess),
+    ).rejects.toThrow("embedding_transport_failed");
+    expect(calls).toBe(5);
+    expect(
+      sql(
+        `select status from public.ai_embedding_requests where operation_id='${opId}' and input_position=1`,
+      ),
+    ).toBe("unknown");
+    expect(sql(`select status from public.ai_embedding_operations where id='${opId}'`)).toBe(
+      "blocked",
+    );
+    mode = "ok";
+    await expect(
+      requestEmbedding(profile, "synthetic", "问题一正常", fetcher, {
+        ...freeAccess,
+        operationId: opId,
+      }),
+    ).rejects.toThrow("embedding_operation_blocked");
+    await expect(
+      requestEmbedding(profile, "synthetic", "问题三被阻断", fetcher, freeAccess),
+    ).rejects.toThrow("embedding_authorization_required");
+    expect(calls).toBe(5);
+  });
+  it("bounded_free_text serializes concurrent races on max_requests=1 and supports clean renewal", async () => {
+    const version = await indexAndVersion();
+    await approveBoundedQuery(version, { maxRequests: 1, maxQueryBytes: 2000 });
+    const freeAccess = {
+      organizationId: GOV_ORG,
+      kind: "query" as const,
+      sourceIds: [source],
+    };
+    const [r1, r2] = await Promise.allSettled([
+      requestEmbedding(profile, "synthetic", "并发问题A", fetcher, freeAccess),
+      requestEmbedding(profile, "synthetic", "并发问题B", fetcher, freeAccess),
+    ]);
+    const fulfilled = [r1, r2].filter((r) => r.status === "fulfilled");
+    const rejected = [r1, r2].filter((r) => r.status === "rejected");
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason.message).toBe(
+      "embedding_budget_exhausted",
+    );
+    expect(calls).toBe(4);
+    // Renew on the exact same configuration_version with a fresh nonce
+    const renewedId = await approveBoundedQuery(version, { maxRequests: 2, maxQueryBytes: 2000 });
+    const winningQuestion = r1.status === "fulfilled" ? "并发问题A" : "并发问题B";
+    await requestEmbedding(profile, "synthetic", winningQuestion, fetcher, freeAccess);
+    expect(calls).toBe(4); // cross-operation cache hit consumes 0 slots and 0 HTTP calls
+    expect(
+      sql(`select reserved_requests from public.ai_embedding_operations where id='${renewedId}'`),
+    ).toBe("0");
+    expect(
+      sql(
+        `select count(*) from public.ai_embedding_requests where operation_id='${renewedId}' and reused_from_request_id is not null`,
+      ),
+    ).toBe("1");
+    await requestEmbedding(profile, "synthetic", "续签后的新问题", fetcher, freeAccess);
+    expect(calls).toBe(5);
+    expect(
+      sql(`select reserved_requests from public.ai_embedding_operations where id='${renewedId}'`),
+    ).toBe("1");
   });
 });

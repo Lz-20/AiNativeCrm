@@ -1,4 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  BOUNDED_FREE_QUERY_MARKER_HASH,
+  boundedFreeQueryManifest,
+  isBoundedFreeQueryManifest,
+} from "@/lib/ai/embeddings/operation-contract";
 const m = vi.hoisted(() => ({
   auth: vi.fn(),
   support: vi.fn(),
@@ -103,5 +108,138 @@ describe("operation approval is an explicit dual-admin action, not a supplier ca
       }),
     );
     expect(m.query.mock.calls[0]![0]).not.toMatch(/event_log|reserved_requests\s*=/);
+  });
+  it("prepares a bounded_free_text query manifest with a unique nonce per call and zero provider calls", async () => {
+    const sourceId = "e4130000-0000-4000-8000-000000000021";
+    const versionId = "e4130000-0000-4000-8000-000000000022";
+    const configVersion = "e4130000-0000-4000-8000-000000000023";
+    m.query.mockResolvedValue({
+      rows: [
+        {
+          id: sourceId,
+          organization_id: org,
+          agent_id: null,
+          source_type: "document",
+          name: "SVC-101",
+          status: "ready",
+          is_active: true,
+          source_metadata: {},
+          active_kb_version_id: versionId,
+        },
+      ],
+    });
+    m.prepare.mockResolvedValue({
+      contentHash: "1".repeat(64),
+      sourceRevisionHash: "2".repeat(64),
+      manifestHash: "3".repeat(64),
+      manifest: [{ position: 0, hash: "4".repeat(64), bytes: 10 }],
+    });
+    m.read.mockResolvedValue({
+      version: configVersion,
+      fingerprint: "embedding:v1:" + "a".repeat(64),
+      provider: "siliconflow",
+    });
+    const first = await POST(
+      request({
+        action: "prepare",
+        knowledge_source_id: sourceId,
+        kind: "query",
+        query_mode: "bounded_free_text",
+        max_query_bytes: 1500,
+      }),
+    );
+    const second = await POST(
+      request({
+        action: "prepare",
+        knowledge_source_id: sourceId,
+        kind: "query",
+        query_mode: "bounded_free_text",
+        max_query_bytes: 1500,
+      }),
+    );
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    const d1 = (await first.json()).data;
+    const d2 = (await second.json()).data;
+    expect(d1.query_mode).toBe("bounded_free_text");
+    expect(d1.max_query_bytes).toBe(1500);
+    expect(d1.manifest[0]).toEqual({
+      position: 0,
+      hash: BOUNDED_FREE_QUERY_MARKER_HASH,
+      bytes: 1500,
+    });
+    expect(isBoundedFreeQueryManifest(d1.manifest, d1.manifest_hash)).toBe(true);
+    expect(isBoundedFreeQueryManifest(d2.manifest, d2.manifest_hash)).toBe(true);
+    expect(d1.manifest_hash).not.toBe(d2.manifest_hash);
+    expect(m.authorize).not.toHaveBeenCalled();
+  });
+  it("rejects bounded_free_text on non-query kinds, oversized byte ceiling, or expiry > 7 days", async () => {
+    const sourceId = "e4130000-0000-4000-8000-000000000021";
+    expect(
+      (
+        await POST(
+          request({
+            action: "prepare",
+            knowledge_source_id: sourceId,
+            kind: "index",
+            query_mode: "bounded_free_text",
+          }),
+        )
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await POST(
+          request({
+            action: "prepare",
+            knowledge_source_id: sourceId,
+            kind: "query",
+            query_mode: "bounded_free_text",
+            max_query_bytes: 2001,
+          }),
+        )
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await POST(
+          request({
+            action: "prepare",
+            knowledge_source_id: sourceId,
+            kind: "query",
+            query_mode: "bounded_free_text",
+            inputs: ["not allowed together"],
+          }),
+        )
+      ).status,
+    ).toBe(400);
+    const bounded = boundedFreeQueryManifest(2000, "e".repeat(64));
+    const tooLong = await POST(
+      request({
+        action: "authorize",
+        operation: {
+          knowledge_source_id: sourceId,
+          kind: "query",
+          content_hash: "1".repeat(64),
+          source_revision_hash: "2".repeat(64),
+          manifest_hash: bounded.manifestHash,
+          manifest: bounded.manifest,
+          fingerprint: "embedding:v1:" + "a".repeat(64),
+          configuration_version: "e4130000-0000-4000-8000-000000000023",
+          price_review_id: "e4130000-0000-4000-8000-000000000024",
+          knowledge_version_id: "e4130000-0000-4000-8000-000000000025",
+          not_before: new Date(Date.now() - 1000).toISOString(),
+          expires_at: new Date(Date.now() + 8 * 86400000).toISOString(),
+          max_requests: 10,
+          max_request_tokens: 8192,
+          max_total_tokens: "81920",
+          max_cost_microcents: "81920",
+          currency: "CNY",
+          confirm_cost: true,
+        },
+      }),
+    );
+    expect(tooLong.status).toBe(409);
+    expect(m.authorize).not.toHaveBeenCalled();
   });
 });

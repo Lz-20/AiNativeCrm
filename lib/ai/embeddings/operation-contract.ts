@@ -1,8 +1,12 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { EmbeddingConfigurationError } from "./profile";
 
 export const hashText = (text: string) => createHash("sha256").update(text).digest("hex");
+export const BOUNDED_FREE_QUERY_MARKER_HASH = hashText("embedding:query_mode:bounded_free_text:v1");
+export const MAX_BOUNDED_FREE_QUERY_BYTES = 2000;
+export const MAX_BOUNDED_FREE_QUERY_REQUESTS = 200;
+export const MAX_BOUNDED_FREE_QUERY_WINDOW_MS = 7 * 86400000;
 export const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
 export const fingerprintSchema = z.string().regex(/^embedding:v1:[a-f0-9]{64}$/);
 const integerAmount = z.string().regex(/^(0|[1-9][0-9]{0,17})$/);
@@ -23,6 +27,46 @@ export function inputManifest(inputs: string[]): { manifest: InputManifest; mani
   }));
   z.array(manifestEntrySchema).min(1).max(10000).parse(manifest);
   return { manifest, manifestHash: hashText(JSON.stringify([1, manifest])) };
+}
+/** Cryptographically separated v2 manifest for bounded free-text query grants. */
+export function boundedFreeQueryManifest(
+  maxQueryBytes = MAX_BOUNDED_FREE_QUERY_BYTES,
+  nonceHex = randomBytes(32).toString("hex"),
+): { manifest: InputManifest; manifestHash: string } {
+  const boundedBytes = z
+    .number()
+    .int()
+    .min(1)
+    .max(MAX_BOUNDED_FREE_QUERY_BYTES)
+    .parse(maxQueryBytes);
+  const nonce = sha256Schema.parse(nonceHex);
+  const manifest: InputManifest = [
+    { position: 0, hash: BOUNDED_FREE_QUERY_MARKER_HASH, bytes: boundedBytes },
+    { position: 1, hash: nonce, bytes: 1 },
+  ];
+  z.array(manifestEntrySchema).length(2).parse(manifest);
+  return {
+    manifest,
+    manifestHash: hashText(JSON.stringify([2, "bounded_free_query", manifest])),
+  };
+}
+export function isBoundedFreeQueryManifest(manifest: InputManifest, manifestHash: string): boolean {
+  if (!Array.isArray(manifest) || manifest.length !== 2) return false;
+  const [marker, nonce] = manifest;
+  if (
+    !marker ||
+    !nonce ||
+    marker.position !== 0 ||
+    marker.hash !== BOUNDED_FREE_QUERY_MARKER_HASH ||
+    !Number.isSafeInteger(marker.bytes) ||
+    marker.bytes < 1 ||
+    marker.bytes > MAX_BOUNDED_FREE_QUERY_BYTES ||
+    nonce.position !== 1 ||
+    !/^[a-f0-9]{64}$/.test(nonce.hash) ||
+    nonce.bytes !== 1
+  )
+    return false;
+  return manifestHash === hashText(JSON.stringify([2, "bounded_free_query", manifest]));
 }
 export const priceReviewSchema = z
   .object({
@@ -84,6 +128,23 @@ export const authorizeOperationSchema = z
         ? value.knowledge_version_id !== null
         : value.knowledge_version_id === null,
     { message: "Only a query grant may bind an existing knowledge version" },
+  )
+  .refine(
+    (value) => {
+      if (isBoundedFreeQueryManifest(value.manifest, value.manifest_hash)) {
+        return (
+          value.kind === "query" &&
+          value.max_requests >= 1 &&
+          value.max_requests <= MAX_BOUNDED_FREE_QUERY_REQUESTS
+        );
+      }
+      return (
+        value.manifest.every((m, i) => m.position === i) &&
+        hashText(JSON.stringify([1, value.manifest])) === value.manifest_hash &&
+        value.max_requests >= value.manifest.length
+      );
+    },
+    { message: "Invalid manifest hash or request budget for operation kind" },
   );
 export type AuthorizeOperation = z.infer<typeof authorizeOperationSchema>;
 export function tenantStoragePath(org: string, path: string): boolean {
